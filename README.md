@@ -69,7 +69,7 @@ cd SchedulerProject
 docker compose up -d --build
 
 # 方式二：先用模板生成配置再改
-cp config.example.py config.py
+cp config_example.py config.py
 # 编辑 config.py 填写数据库等
 docker compose up -d --build
 ```
@@ -100,7 +100,7 @@ source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 # 3. 配置
-cp config.example.py config.py
+cp config_example.py config.py
 # 编辑 config.py，填写 MySQL 地址 / 账号 / 密码
 
 # 4.（可选）初始化数据库
@@ -138,7 +138,7 @@ SchedulerProject/
 ├── static/vendor/        # 本地化前端资源（Bootstrap / CodeMirror / jQuery，无 CDN）
 ├── task/
 │   └── script_template.py   # 任务脚本模板（已脱敏，可提交）
-├── config.example.py     # 脱敏配置模板（复制为 config.py 使用）
+├── config_example.py     # 脱敏配置模板（复制为 config.py 使用）
 ├── init_db.sql           # 可选种子数据
 ├── requirements.txt
 ├── Dockerfile
@@ -202,7 +202,7 @@ docker compose up -d --build
 
 ```bash
 pip install -r requirements.txt
-cp config.example.py config.py      # edit DB settings
+cp config_example.py config.py      # edit DB settings
 python run.py --host 0.0.0.0 --port 8082
 ```
 

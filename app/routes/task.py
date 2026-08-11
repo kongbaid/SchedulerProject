@@ -63,7 +63,10 @@ def resolve_script_path(script_path: str) -> str:
     :param script_path: 原始脚本路径
     :return: 解析后的绝对路径
     """
-    from config import BASE_DIR
+    try:
+        from config import BASE_DIR
+    except ImportError:
+        from config_example import BASE_DIR
     
     # 清理路径
     script_path = clean_path(script_path)

@@ -11,7 +11,10 @@ from typing import Optional
 
 from flask import Flask, redirect, url_for
 
-from config import Config
+try:
+    from config import Config
+except ImportError:
+    from config_example import Config
 from app.extensions import db, login_manager
 
 # ============================================================

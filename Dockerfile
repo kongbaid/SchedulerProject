@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # 由脱敏模板生成容器配置；运行时通过环境变量覆盖数据库等敏感项
-RUN cp config.example.py config.py
+RUN cp config_example.py config.py
 
 EXPOSE 8082
 

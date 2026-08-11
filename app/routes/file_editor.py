@@ -23,7 +23,10 @@ from app.models.user import ROLE_ADMIN
 from app.models.project import SavedProject
 from app.models.editor_execution import EditorExecutionLog
 from app.extensions import db
-from config import Config
+try:
+    from config import Config
+except ImportError:
+    from config_example import Config
 
 logger = logging.getLogger(__name__)
 
