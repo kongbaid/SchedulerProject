@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}登录 - 脚本任务管理系统{% endblock %}
+
+{% block navbar %}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-4">
+        <div class="card shadow-lg border-0">
+            <div class="card-body p-5">
+                <div class="text-center mb-4">
+                    <i class="bi bi-terminal-fill text-primary" style="font-size: 3rem;"></i>
+                    <h4 class="mt-2 fw-bold">脚本任务管理系统</h4>
+                    <p class="text-muted">请登录以继续</p>
+                </div>
+                <form id="loginForm">
+                    <div class="mb-3">
+                        <label class="form-label">用户名</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-person"></i></span>
+                            <input type="text" class="form-control" id="username"
+                                   placeholder="请输入用户名" required autocomplete="username">
+                        </div>
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label">密码</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-lock"></i></span>
+                            <input type="password" class="form-control" id="password"
+                                   placeholder="请输入密码" required autocomplete="current-password">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100" id="loginBtn">
+                        <i class="bi bi-box-arrow-in-right me-1"></i>登 录
+                    </button>
+                </form>
+                <div id="loginError" class="alert alert-danger mt-3 d-none"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+$(function() {
+    $('#loginForm').on('submit', function(e) {
+        e.preventDefault();
+        var $btn = $('#loginBtn');
+        var $err = $('#loginError');
+        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span>登录中...');
+        $err.addClass('d-none');
+
+        $.ajax({
+            url: '/api/login',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                username: $('#username').val(),
+                password: $('#password').val()
+            }),
+            success: function(res) {
+                if (res.code === 200) {
+                    window.location.href = res.data.redirect || '/tasks';
+                } else {
+                    $err.text(res.msg).removeClass('d-none');
+                }
+            },
+            error: function(xhr) {
+                var data = xhr.responseJSON || {};
+                $err.text(data.msg || '网络错误，请稍后重试').removeClass('d-none');
+            },
+            complete: function() {
+                $btn.prop('disabled', false).html('<i class="bi bi-box-arrow-in-right me-1"></i>登 录');
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

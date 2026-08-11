@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}短信记录 - 脚本任务管理系统{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-chat-dots me-2"></i>短信记录</h4>
+    <div>
+        <button class="btn btn-outline-success btn-sm" onclick="exportRecords()">
+            <i class="bi bi-download me-1"></i>导出 CSV
+        </button>
+        <button class="btn btn-outline-primary btn-sm" onclick="loadRecords(1)">
+            <i class="bi bi-arrow-clockwise me-1"></i>刷新
+        </button>
+        <button class="btn btn-outline-danger btn-sm" onclick="clearRecords()">
+            <i class="bi bi-trash me-1"></i>清空记录
+        </button>
+    </div>
+</div>
+
+<!-- 搜索栏 -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-center">
+            <div class="col-md-6">
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input type="text" class="form-control" id="searchKeyword"
+                           placeholder="搜索手机号、任务名、内容关键词..."
+                           onkeydown="if(event.key==='Enter')loadRecords(1)">
+                    <button class="btn btn-outline-primary" onclick="loadRecords(1)">搜索</button>
+                    <button class="btn btn-outline-secondary" onclick="$('#searchKeyword').val('');loadRecords(1)">重置</button>
+                </div>
+            </div>
+            <div class="col-md-6 text-end">
+                <small class="text-muted" id="recordsInfo">共 0 条记录</small>
+                <span class="ms-2 badge bg-info" id="autoRefreshBadge" style="display:none;">
+                    <span class="spinner-border spinner-border-sm me-1" style="width:.8rem;height:.8rem;"></span>自动刷新中
+                </span>
+                <button class="btn btn-outline-info btn-sm ms-2" id="autoRefreshBtn" onclick="toggleAutoRefresh()">
+                    <i class="bi bi-play-circle me-1"></i>自动刷新
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 记录列表 -->
+<div class="card">
+    <div class="table-responsive">
+        <table class="table table-hover table-sm mb-0" id="smsTable">
+            <thead class="table-light">
+                <tr>
+                    <th style="width:50px">#</th>
+                    <th style="width:160px">时间</th>
+                    <th style="width:80px">状态</th>
+                    <th style="width:120px">手机号</th>
+                    <th style="width:120px">任务名</th>
+                    <th>短信内容</th>
+                </tr>
+            </thead>
+            <tbody id="smsTableBody">
+                <tr><td colspan="6" class="text-center text-muted py-4">加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="card-footer d-flex justify-content-between align-items-center py-2">
+        <span id="paginationInfo" class="small text-muted">-</span>
+        <nav><ul class="pagination pagination-sm mb-0" id="pagination"></ul></nav>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var currentPage = 1;
+var perPage = 15;
+var autoRefreshTimer = null;
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function loadRecords(page) {
+    currentPage = page || 1;
+    var keyword = $('#searchKeyword').val().trim();
+    $.getJSON('/api/sms-records', {page: currentPage, per_page: perPage, keyword: keyword}, function(res) {
+        if (res.code !== 200) {
+            $('#smsTableBody').html('<tr><td colspan="6" class="text-center text-danger py-3">加载失败</td></tr>');
+            return;
+        }
+        var d = res.data;
+        var html = '';
+        if (d.items.length === 0) {
+            html = '<tr><td colspan="6" class="text-center text-muted py-4">暂无短信记录</td></tr>';
+        }
+        $.each(d.items, function(i, item) {
+            var body = item.body || {};
+            var content = body.content || '';
+            var phones = body.phones || '';
+            var taskName = body.task_name || '';
+            var status = item.status || '';
+            var contentDisplay = content.length > 80 ? content.substring(0, 77) + '...' : content;
+            var statusBadge = '';
+            if (status === 'success') {
+                statusBadge = '<span class="badge bg-success">成功</span>';
+            } else if (status === 'failed') {
+                statusBadge = '<span class="badge bg-danger">失败</span>';
+            } else if (status === 'error') {
+                statusBadge = '<span class="badge bg-warning text-dark">异常</span>';
+            } else if (status === 'mock') {
+                statusBadge = '<span class="badge bg-secondary">模拟</span>';
+            } else {
+                statusBadge = '<span class="badge bg-light text-dark">' + escapeHtml(status) + '</span>';
+            }
+            html += '<tr>' +
+                '<td class="small">' + item.id + '</td>' +
+                '<td class="small">' + escapeHtml(item.time) + '</td>' +
+                '<td>' + statusBadge + '</td>' +
+                '<td><code class="small">' + escapeHtml(phones) + '</code></td>' +
+                '<td><span class="badge bg-secondary">' + escapeHtml(taskName) + '</span></td>' +
+                '<td class="small" title="' + escapeHtml(content) + '">' + escapeHtml(contentDisplay) + '</td>' +
+                '</tr>';
+        });
+        $('#smsTableBody').html(html);
+        $('#recordsInfo').text('共 ' + d.total + ' 条记录');
+        $('#paginationInfo').text('第 ' + d.page + ' / ' + d.pages + ' 页，每页 ' + d.per_page + ' 条');
+        renderPagination('pagination', d.page, d.pages, loadRecords);
+    });
+}
+
+// 通用分页渲染（兼容任务列表页的分页函数）
+function renderPagination(containerId, current, total, callback) {
+    var $ul = $('#' + containerId);
+    $ul.empty();
+    if (total <= 1) return;
+    var $prev = $('<li class="page-item' + (current <= 1 ? ' disabled' : '') + '">' +
+        '<a class="page-link" href="#">&laquo;</a></li>');
+    $prev.find('a').on('click', function(e) { e.preventDefault(); if(current > 1) callback(current-1); });
+    $ul.append($prev);
+
+    var start = Math.max(1, current - 2);
+    var end = Math.min(total, current + 2);
+    for (var p = start; p <= end; p++) {
+        var $li = $('<li class="page-item' + (p === current ? ' active' : '') + '">' +
+            '<a class="page-link" href="#">' + p + '</a></li>');
+        (function(pg) {
+            $li.find('a').on('click', function(e) { e.preventDefault(); callback(pg); });
+        })(p);
+        $ul.append($li);
+    }
+
+    var $next = $('<li class="page-item' + (current >= total ? ' disabled' : '') + '">' +
+        '<a class="page-link" href="#">&raquo;</a></li>');
+    $next.find('a').on('click', function(e) { e.preventDefault(); if(current < total) callback(current+1); });
+    $ul.append($next);
+}
+
+function exportRecords() {
+    var keyword = $('#searchKeyword').val().trim();
+    var url = '/api/sms-records/export';
+    if (keyword) url += '?keyword=' + encodeURIComponent(keyword);
+    window.location.href = url;
+}
+
+function clearRecords() {
+    if (!confirm('确定要清空所有短信记录吗？')) return;
+    $.ajax({
+        url: '/api/sms-records/clear', method: 'POST',
+        success: function(res) {
+            showToast(res.msg, 'success');
+            loadRecords(1);
+        }
+    });
+}
+
+function toggleAutoRefresh() {
+    if (autoRefreshTimer) {
+        clearInterval(autoRefreshTimer);
+        autoRefreshTimer = null;
+        $('#autoRefreshBadge').hide();
+        $('#autoRefreshBtn').html('<i class="bi bi-play-circle me-1"></i>自动刷新').removeClass('btn-info').addClass('btn-outline-info');
+    } else {
+        autoRefreshTimer = setInterval(function() { loadRecords(currentPage); }, 5000);
+        $('#autoRefreshBadge').show();
+        $('#autoRefreshBtn').html('<i class="bi bi-pause-circle me-1"></i>停止刷新').removeClass('btn-outline-info').addClass('btn-info');
+    }
+}
+
+function showToast(msg, type) {
+    var $t = $('<div class="alert alert-' + (type||'info') + ' alert-dismissible fade show py-2 px-3 shadow-sm">' +
+        msg + '<button type="button" class="btn-close btn-close-sm ms-2" data-bs-dismiss="alert"></button></div>');
+    $('#global-toast').prepend($t);
+    setTimeout(function() { $t.alert('close'); }, 3000);
+}
+
+$(function() { loadRecords(1); });
+</script>
+{% endblock %}

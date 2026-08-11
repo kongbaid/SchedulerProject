@@ -1,0 +1,33 @@
+# ===== 敏感配置（容器内由 config.example.py 生成）=====
+config.py
+
+# ===== 运行时 / 日志（容器内自动重建）=====
+logs/
+
+# ===== 非开源 / 私有模块 =====
+spider_login/
+node_modules/
+
+# ===== 项目记忆 / 编辑器工具 =====
+.workbuddy/
+.trae/
+
+# ===== Python 缓存 =====
+__pycache__/
+*.pyc
+*.pyo
+
+# ===== 虚拟环境 =====
+.venv/
+venv/
+
+# ===== 环境变量文件 =====
+.env
+
+# ===== 编辑器 / IDE =====
+.vscode/
+.idea/
+
+# ===== 测试（按需保留）=====
+test_*.py
+test/

@@ -1,0 +1,178 @@
+/* ============================================================
+   脚本任务管理系统 - 自定义样?   ============================================================ */
+
+/* 全局 */
+body {
+    background-color: #f4f6f9;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* 导航?*/
+.navbar {
+    padding: 0.6rem 1rem;
+}
+.navbar-brand {
+    font-size: 1.15rem;
+}
+
+/* 卡片 */
+.card {
+    border-radius: 8px;
+}
+.card-header {
+    border-radius: 8px 8px 0 0 !important;
+}
+
+/* 表格 */
+.table th {
+    font-weight: 600;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    color: #6c757d;
+    white-space: nowrap;
+}
+.table td {
+    vertical-align: middle;
+    font-size: 0.9rem;
+}
+
+/* 状态徽?*/
+.badge {
+    font-weight: 500;
+    font-size: 0.78rem;
+    padding: 0.35em 0.65em;
+}
+
+/* 运行中闪烁动?*/
+.blink {
+    animation: blink-animation 1.5s ease-in-out infinite;
+}
+@keyframes blink-animation {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* 日志内容区域 */
+.log-content {
+    background: #1e1e2e;
+    color: #cdd6f4;
+    padding: 16px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    max-height: 70vh;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-family: "Cascadia Code", "Fira Code", "Consolas", "Microsoft YaHei", "微软雅黑", "PingFang SC", "SimHei", monospace;
+}
+
+/* 日志错误高亮 */
+.log-error {
+    color: #f38ba8;
+    font-weight: bold;
+    background: rgba(243, 139, 168, 0.15);
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+
+/* 日志系统标记 */
+.log-system {
+    color: #fab387;
+    font-weight: bold;
+}
+
+/* 分页 */
+.pagination .page-link {
+    border-radius: 4px;
+    margin: 0 2px;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.6rem;
+}
+.pagination .page-item.active .page-link {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+}
+
+/* 表单开?*/
+.form-check-input:checked {
+    background-color: #198754;
+    border-color: #198754;
+}
+
+/* Toast 提示 */
+.toast-msg {
+    min-width: 250px;
+    padding: 12px 20px;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 0.9rem;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    animation: slideInTop 0.3s ease-out;
+    margin-bottom: 8px;
+}
+.toast-msg.toast-success { background: #198754; }
+.toast-msg.toast-danger  { background: #dc3545; }
+.toast-msg.toast-warning { background: #ffc107; color: #333; }
+.toast-msg.toast-info    { background: #0dcaf0; color: #333; }
+
+@keyframes slideInTop {
+    from { transform: translateY(-100%); opacity: 0; }
+    to   { transform: translateY(0); opacity: 1; }
+}
+
+/* 操作按钮?*/
+.btn-group-sm > .btn {
+    font-size: 0.8rem;
+}
+
+/* 代码标签 */
+code {
+    font-size: 0.82rem;
+    color: #6f42c1;
+}
+
+/* Modal 大屏 */
+.modal-xl {
+    max-width: 90vw;
+}
+
+/* 响应?*/
+@media (max-width: 768px) {
+    .table {
+        font-size: 0.8rem;
+    }
+    .btn-sm {
+        font-size: 0.75rem;
+        padding: 0.2rem 0.4rem;
+    }
+}
+
+/* Cron 可视化配?*/
+.nav-tabs-sm .nav-link {
+    font-size: 0.85rem;
+    padding: 0.3rem 0.8rem;
+    color: #6c757d;
+}
+.nav-tabs-sm .nav-link:hover {
+    color: #0d6efd;
+}
+.nav-tabs-sm .nav-link.active {
+    color: #0d6efd;
+    font-weight: 600;
+}
+.cron-preset {
+    font-size: 0.78rem;
+    padding: 0.2rem 0.5rem;
+}
+#cronPreview {
+    font-size: 1rem;
+    letter-spacing: 1px;
+}
+#cronVisualPanel .form-select-sm,
+#cronVisualPanel .form-control-sm {
+    font-size: 0.82rem;
+}
+#cronVisualPanel label {
+    margin-bottom: 0.2rem;
+}

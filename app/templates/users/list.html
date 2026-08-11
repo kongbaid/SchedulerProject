@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+
+{% block title %}用户管理 - 脚本任务管理系统{% endblock %}
+
+{% block content %}
+<!-- 自定义样式 -->
+<style>
+.task-perm-item {
+    padding: 12px;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    background-color: #fff;
+    transition: all 0.2s;
+}
+.task-perm-item:hover {
+    background-color: #f8f9fa;
+    border-color: #dee2e6;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+.perm-options {
+    transition: all 0.3s ease;
+}
+.perm-option-label {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;
+    background-color: #e9ecef;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.875rem;
+    transition: all 0.2s;
+}
+.perm-option-label:hover {
+    background-color: #dee2e6;
+}
+.perm-option-label input[type="checkbox"] {
+    margin-right: 4px;
+}
+.perm-option-label i {
+    color: #6c757d;
+}
+</style>
+
+<div class="row mb-4">
+    <div class="col">
+        <h2 class="mb-0">
+            <i class="bi bi-people-fill me-2"></i>用户管理
+        </h2>
+        <p class="text-muted mt-2">管理系统用户、角色和任务权限分配</p>
+    </div>
+    <div class="col-auto">
+        <button class="btn btn-primary" onclick="showAddUserModal()">
+            <i class="bi bi-person-plus me-1"></i>添加用户
+        </button>
+    </div>
+</div>
+
+<!-- 搜索栏 -->
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input type="text" class="form-control" id="searchKeyword" placeholder="搜索用户名..." 
+                           onkeyup="if(event.key==='Enter') searchUsers()">
+                    <button class="btn btn-outline-secondary" onclick="searchUsers()">搜索</button>
+                    <button class="btn btn-outline-secondary" onclick="resetSearch()">重置</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 用户列表 -->
+<div class="card">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>用户名</th>
+                        <th>角色</th>
+                        <th>状态</th>
+                        <th>管理任务数</th>
+                        <th>创建时间</th>
+                        <th class="text-center">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="userTableBody">
+                    <tr>
+                        <td colspan="7" class="text-center py-5">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">加载中...</span>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- 分页 -->
+        <nav aria-label="用户分页">
+            <ul class="pagination justify-content-center" id="pagination"></ul>
+        </nav>
+    </div>
+</div>
+
+<!-- 添加/编辑用户模态框 -->
+<div class="modal fade" id="userModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="userModalTitle">添加用户</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="userForm">
+                    <input type="hidden" id="userId">
+                    <div class="mb-3">
+                        <label class="form-label">用户名 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="username" required minlength="3" maxlength="80">
+                        <div class="form-text">3-80个字符</div>
+                    </div>
+                    <div class="mb-3" id="passwordGroup">
+                        <label class="form-label">密码 <span class="text-danger">*</span></label>
+                        <input type="password" class="form-control" id="password" minlength="6">
+                        <div class="form-text">至少6个字符</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">角色 <span class="text-danger">*</span></label>
+                        <select class="form-select" id="role" required>
+                            <option value="user">普通用户</option>
+                            <option value="admin">管理员</option>
+                        </select>
+                    </div>
+                    <div class="mb-3" id="createTaskPermGroup">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="canCreateTask">
+                            <label class="form-check-label" for="canCreateTask">
+                                <i class="bi bi-plus-circle me-1"></i>允许创建任务
+                            </label>
+                        </div>
+                        <div class="form-text">开启后，该用户可以创建新的定时任务</div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="isActive" checked>
+                            <label class="form-check-label" for="isActive">启用账号</label>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="saveUser()">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 重置密码模态框 -->
+<div class="modal fade" id="resetPasswordModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">重置密码</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="resetUserId">
+                <div class="mb-3">
+                    <label class="form-label">新密码 <span class="text-danger">*</span></label>
+                    <input type="password" class="form-control" id="newPassword" minlength="6" required>
+                    <div class="form-text">至少6个字符</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-warning" onclick="resetPassword()">确认重置</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 任务权限分配模态框 -->
+<div class="modal fade" id="permissionModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">分配任务权限</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="permUserId">
+                <div class="mb-3">
+                    <h6>用户：<span id="permUsername" class="text-primary"></span></h6>
+                </div>
+                <hr>
+                <div class="mb-3">
+                    <label class="form-label">可管理的任务（勾选）</label>
+                    <div id="taskList" class="border rounded p-3" style="max-height: 400px; overflow-y: auto;">
+                        <div class="text-center text-muted">
+                            <div class="spinner-border spinner-border-sm" role="status"></div>
+                            <span class="ms-2">加载任务列表...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="savePermissions()">保存权限</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/user-management.js') }}"></script>
+{% endblock %}

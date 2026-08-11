@@ -1,0 +1,3492 @@
+{% extends "base.html" %}
+{% block title %}文件编辑器 - 脚本任务管理系统{% endblock %}
+
+{% block content %}
+<!-- 引入 CodeMirror - 本地资源 -->
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/lib/codemirror.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/theme/monokai.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/addon/hint/show-hint.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/addon/search/search.min.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/addon/dialog/dialog.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/addon/scroll/simplescrollbars.css') }}">
+
+<style>
+.file-editor-container {
+    display: flex;
+    height: calc(100vh - 120px);
+    gap: 10px;
+}
+
+/* 左侧文件树 */
+.file-tree-panel {
+    width: 300px;
+    min-width: 250px;
+    max-width: 400px;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.file-tree-header {
+    padding: 10px;
+    background: #e9ecef;
+    border-bottom: 1px solid #dee2e6;
+    font-weight: bold;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.file-tree-content {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: auto;
+    padding: 10px;
+}
+
+/* 文件树样式 */
+.tree-item {
+    cursor: pointer;
+    padding: 4px 8px;
+    margin: 2px 0;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.tree-item:hover {
+    background: #e9ecef;
+}
+
+.tree-item.active {
+    background: #007bff;
+    color: white;
+}
+
+.tree-item .icon {
+    width: 16px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.tree-item .file-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+}
+
+.tree-item .file-name:hover {
+    overflow: visible;
+    text-overflow: clip;
+    position: relative;
+    z-index: 10;
+    background: inherit;
+}
+
+.tree-children {
+    margin-left: 20px;
+    display: none;
+}
+
+.tree-children.expanded {
+    display: block;
+}
+
+.tree-actions {
+    margin-left: auto;
+    opacity: 0;
+    transition: opacity 0.2s;
+    flex-shrink: 0;
+}
+
+.tree-item:hover .tree-actions {
+    opacity: 1;
+}
+
+/* 右侧编辑器 */
+.editor-panel {
+    flex: 1;
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.editor-header {
+    padding: 10px;
+    background: #e9ecef;
+    border-bottom: 1px solid #dee2e6;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: nowrap;
+}
+
+.editor-header > div:first-child {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+}
+
+#currentFileName {
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+#currentFilePath {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: inline-block;
+    max-width: 60%;
+}
+
+.editor-content {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+}
+
+/* CodeMirror 自定义 */
+.CodeMirror {
+    height: 100% !important;
+    font-size: 14px;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+}
+
+/* 查找替换面板 */
+.search-replace-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    background: #2b2b2b;
+    border-left: 1px solid #3c3c3c;
+    border-bottom: 1px solid #3c3c3c;
+    padding: 8px;
+    z-index: 1000;
+    min-width: 350px;
+    box-shadow: -2px 2px 8px rgba(0,0,0,0.3);
+}
+
+.search-bar, .replace-bar {
+    margin-bottom: 6px;
+}
+
+.search-bar:last-child, .replace-bar:last-child {
+    margin-bottom: 0;
+}
+
+.search-input-group, .replace-input-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: #3c3c3c;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 4px 8px;
+    transition: border-color 0.2s;
+}
+
+.search-input-group:focus-within, .replace-input-group:focus-within {
+    border-color: #007bff;
+}
+
+.search-icon, .replace-icon {
+    color: #858585;
+    font-size: 14px;
+}
+
+.search-input, .replace-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: #d4d4d4;
+    font-size: 13px;
+    padding: 2px 4px;
+    outline: none;
+}
+
+.search-input::placeholder, .replace-input::placeholder {
+    color: #858585;
+}
+
+.search-count {
+    color: #858585;
+    font-size: 12px;
+    padding: 0 4px;
+    min-width: 40px;
+    text-align: center;
+}
+
+.search-btn, .replace-btn {
+    background: transparent;
+    border: none;
+    color: #cccccc;
+    padding: 4px 8px;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: background 0.2s;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.search-btn:hover, .replace-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.search-btn:active, .replace-btn:active {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.replace-btn {
+    background: #0e639c;
+    color: white;
+    padding: 4px 12px;
+}
+
+.replace-btn:hover {
+    background: #1177bb;
+}
+
+.replace-all-btn {
+    background: #0e639c;
+}
+
+.replace-all-btn:hover {
+    background: #1177bb;
+}
+
+.search-options {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+    padding-left: 28px;
+}
+
+.search-option {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: #858585;
+    font-size: 11px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.search-option input[type="checkbox"] {
+    margin: 0;
+    cursor: pointer;
+}
+
+.search-option span {
+    font-family: monospace;
+    font-weight: bold;
+}
+
+/* 搜索结果高亮 */
+.CodeMirror .search-highlight {
+    background: #ff0 !important;
+    color: #000 !important;
+}
+
+.CodeMirror .search-highlight-current {
+    background: #ff6b6b !important;
+    color: #000 !important;
+    outline: 2px solid #ff0000;
+}
+
+/* 初始欢迎页面 */
+.welcome-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: #6c757d;
+}
+
+.welcome-screen i {
+    font-size: 64px;
+    margin-bottom: 20px;
+}
+
+/* 工具栏按钮 */
+.toolbar-btn {
+    padding: 2px 6px;
+    font-size: 12px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: background 0.2s;
+}
+
+.toolbar-btn:hover {
+    background: rgba(0, 0, 0, 0.1);
+}
+
+/* 右键菜单 */
+.context-menu {
+    position: fixed;
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    z-index: 9999;
+    display: none;
+    min-width: 150px;
+}
+
+.context-menu-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.context-menu-item:hover {
+    background: #f8f9fa;
+}
+
+.context-menu-item.danger {
+    color: #dc3545;
+}
+
+.context-menu-divider {
+    height: 1px;
+    background: #dee2e6;
+    margin: 4px 0;
+}
+
+/* 拖拽调整宽度的手柄 */
+.resize-handle {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    cursor: col-resize;
+    background: transparent;
+    z-index: 100;
+    transition: background 0.2s;
+}
+
+.resize-handle:hover,
+.resize-handle.resizing {
+    background: #007bff;
+    opacity: 0.3;
+}
+
+.file-tree-panel {
+    position: relative;
+}
+
+/* CodeMirror 对话框样式优化 */
+.CodeMirror-dialog {
+    background: #272822;
+    border-bottom: 2px solid #007bff;
+    padding: 8px 12px;
+    font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.CodeMirror-dialog input {
+    background: #3e3d32;
+    border: 1px solid #555;
+    color: #f8f8f2;
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-size: 13px;
+}
+
+.CodeMirror-dialog input:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 5px rgba(0, 123, 255, 0.3);
+}
+
+.CodeMirror-dialog button {
+    background: #007bff;
+    color: white;
+    border: none;
+    padding: 4px 12px;
+    border-radius: 3px;
+    margin-left: 5px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.CodeMirror-dialog button:hover {
+    background: #0056b3;
+}
+
+.CodeMirror-dialog .CodeMirror-search-label {
+    color: #f8f8f2;
+    font-size: 13px;
+    margin-right: 5px;
+}
+
+/* 搜索结果高亮 */
+.CodeMirror-selectedtext {
+    background: #ff0 !important;
+}
+
+span.CodeMirror-matchingtag {
+    background: rgba(255, 255, 0, 0.3);
+}
+
+/* 文件标签页样式 */
+.file-tabs-container {
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    min-height: 30px;
+    align-items: flex-end;
+    padding: 0;
+    scrollbar-width: thin;
+}
+
+.file-tabs-container::-webkit-scrollbar {
+    height: 4px;
+}
+
+.file-tabs-container::-webkit-scrollbar-thumb {
+    background: #adb5bd;
+    border-radius: 2px;
+}
+
+.file-tab {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    background: #dee2e6;
+    border: 1px solid #ced4da;
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+    cursor: pointer;
+    white-space: nowrap;
+    font-size: 12px;
+    max-width: 180px;
+    min-width: 80px;
+    transition: background 0.15s;
+    flex-shrink: 0;
+}
+
+.file-tab:hover {
+    background: #e9ecef;
+}
+
+.file-tab.active {
+    background: white;
+    border-bottom: 1px solid white;
+    margin-bottom: -1px;
+    font-weight: 600;
+}
+
+.file-tab .tab-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+}
+
+.file-tab .tab-close {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    font-size: 10px;
+    color: #6c757d;
+    transition: all 0.15s;
+}
+
+.file-tab .tab-close:hover {
+    background: #dc3545;
+    color: white;
+}
+
+.file-tab .tab-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #ffc107;
+    flex-shrink: 0;
+}
+</style>
+
+<!-- 主容器 -->
+<div class="container-fluid">
+    <!-- 顶部工具栏 -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0"><i class="bi bi-file-earmark-code me-2"></i>在线文件编辑器</h4>
+        <div>
+            <button class="btn btn-sm btn-outline-primary" id="changeProjectBtn">
+                <i class="bi bi-list-ul me-1"></i>项目管理
+            </button>
+        </div>
+    </div>
+
+    <!-- 项目选择（初始显示） -->
+    <div id="projectSelectPanel" class="card border-0 shadow-sm mb-3">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="card-title mb-0"><i class="bi bi-folder2-open me-2"></i>项目管理</h5>
+                <button class="btn btn-sm btn-success" onclick="showAddProjectModal()">
+                    <i class="bi bi-plus-circle me-1"></i>新增项目
+                </button>
+            </div>
+            
+            <!-- 项目列表表格 -->
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th width="20%">项目名称</th>
+                            <th width="35%">项目路径</th>
+                            <th width="15%">添加时间</th>
+                            <th width="15%">修改时间</th>
+                            <th width="15%" class="text-center">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="projectsTableBody">
+                        <tr>
+                            <td colspan="5" class="text-center text-muted py-4">加载中...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 新增/编辑项目 Modal -->
+    <div class="modal fade" id="projectModal" tabindex="-1" data-bs-backdrop="static">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="projectModalTitle">
+                        <i class="bi bi-folder-plus me-2"></i>新增项目
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="editProjectId">
+                    <div class="mb-3">
+                        <label class="form-label">项目名称 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="modalProjectName" 
+                               placeholder="例如：我的Python项目">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">项目路径 <span class="text-danger">*</span></label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="modalProjectPath" 
+                                   placeholder="例如：C:\Users\Desktop\Project">
+                            <button class="btn btn-outline-primary" type="button" onclick="selectProjectPath()" title="选择文件夹">
+                                <i class="bi bi-folder2-open"></i> 浏览
+                            </button>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">备注说明</label>
+                        <textarea class="form-control" id="modalProjectDesc" rows="2" 
+                                  placeholder="可选，例如：测试项目"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="saveProject()">
+                        <i class="bi bi-save me-1"></i>保存
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 新建文件/文件夹 Modal -->
+    <div class="modal fade" id="createFileModal" tabindex="-1" data-bs-backdrop="static">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="createFileModalTitle">
+                        <i class="bi bi-file-earmark-plus me-2"></i>新建文件
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="createFileParentPath">
+                    <input type="hidden" id="createFileType">
+                    <div class="mb-3">
+                        <label class="form-label">名称 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="createFileName" 
+                               placeholder="例如：test.py">
+                        <small class="text-muted">文件夹不需要扩展名</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="confirmCreateFile()">
+                        <i class="bi bi-check-lg me-1"></i>创建
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 重命名 Modal -->
+    <div class="modal fade" id="renameModal" tabindex="-1" data-bs-backdrop="static">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-pencil-square me-2"></i>重命名
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="renameOldPath">
+                    <div class="mb-3">
+                        <label class="form-label">新名称 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="renameNewName" 
+                               placeholder="输入新名称">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="confirmRename()">
+                        <i class="bi bi-check-lg me-1"></i>确认
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 删除确认 Modal -->
+    <div class="modal fade" id="deleteModal" tabindex="-1" data-bs-backdrop="static">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">
+                        <i class="bi bi-exclamation-triangle me-2"></i>确认删除
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-2">确定要删除：</p>
+                    <p class="fw-bold text-danger mb-2" id="deleteItemName"></p>
+                    <small class="text-muted">此操作不可恢复！</small>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-danger" onclick="confirmDelete()">
+                        <i class="bi bi-trash me-1"></i>删除
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 文件编辑器（初始化后显示） -->
+    <div id="editorPanel" class="d-none">
+        <div class="file-editor-container">
+            <!-- 左侧文件树 -->
+            <div class="file-tree-panel" id="fileTreePanel">
+                <div class="file-tree-header">
+                    <i class="bi bi-folder2-open me-2"></i>
+                    <span id="projectName">项目</span>
+                    <div class="btn-group btn-group-sm float-end">
+                        <button class="btn btn-outline-secondary btn-sm" id="refreshTreeBtn" title="刷新">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" id="newFileBtn" title="新建文件">
+                            <i class="bi bi-file-earmark-plus"></i>
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" id="newFolderBtn" title="新建文件夹">
+                            <i class="bi bi-folder-plus"></i>
+                        </button>
+                        <button class="btn btn-outline-primary btn-sm" id="backupProjectBtn" title="备份当前项目">
+                            <i class="bi bi-archive"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="file-tree-content" id="fileTree">
+                    <div class="text-center text-muted py-4">加载中...</div>
+                </div>
+                <!-- 拖拽调整宽度的手柄 -->
+                <div class="resize-handle" id="resizeHandle"></div>
+            </div>
+
+            <!-- 右侧编辑器 -->
+            <div class="editor-panel">
+                <div class="editor-header">
+                    <div style="flex: 1; min-width: 0;">
+                        <!-- 文件标签页容器 -->
+                        <div id="fileTabs" class="file-tabs-container">
+                            <!-- 标签页将动态添加到这里 -->
+                        </div>
+                        <div id="currentFileInfo" class="d-none">
+                            <i class="bi bi-file-earmark-text me-2"></i>
+                            <span id="currentFileName">未打开文件</span>
+                            <small class="text-muted ms-2" id="currentFilePath"></small>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <!-- 执行列表按钮 -->
+                        <button class="btn btn-sm btn-outline-info" id="executionsBtn" title="查看执行列表">
+                            <i class="bi bi-list-checks me-1"></i>执行列表
+                        </button>
+                        <!-- 运行按钮 -->
+                        <button class="btn btn-sm btn-success" id="runScriptBtn" disabled>
+                            <i class="bi bi-play-fill me-1"></i>运行
+                        </button>
+                        <!-- 查找替换按钮 -->
+                        <button class="btn btn-sm btn-outline-info" id="searchReplaceBtn" title="查找替换 (Ctrl+F)">
+                            <i class="bi bi-search me-1"></i>查找替换
+                        </button>
+                        <div class="vr"></div>
+                        <!-- 保存和关闭按钮 -->
+                        <button class="btn btn-sm btn-primary" id="saveFileBtn" disabled>
+                            <i class="bi bi-save me-1"></i>保存
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" id="closeFileBtn" disabled>
+                            <i class="bi bi-x-lg me-1"></i>关闭
+                        </button>
+                    </div>
+                </div>
+                <div class="editor-content">
+                    <!-- 欢迎页面 -->
+                    <div id="welcomeScreen" class="welcome-screen">
+                        <i class="bi bi-file-earmark-code"></i>
+                        <h5>欢迎使用在线文件编辑器</h5>
+                        <p class="mb-0">从左侧文件树中选择文件进行编辑</p>
+                    </div>
+                    <!-- 代码编辑器 -->
+                    <textarea id="codeEditor" class="d-none"></textarea>
+                    
+                    <!-- 自定义查找替换面板 -->
+                    <div id="searchReplacePanel" class="search-replace-panel" style="display: none;">
+                        <!-- 查找栏 -->
+                        <div class="search-bar">
+                            <div class="search-input-group">
+                                <i class="bi bi-search search-icon"></i>
+                                <input type="text" id="searchInput" class="search-input" placeholder="查找...">
+                                <span id="searchCount" class="search-count">0/0</span>
+                                <button class="search-btn" id="prevMatchBtn" title="上一个">
+                                    <i class="bi bi-chevron-up"></i>
+                                </button>
+                                <button class="search-btn" id="nextMatchBtn" title="下一个">
+                                    <i class="bi bi-chevron-down"></i>
+                                </button>
+                                <button class="search-btn" id="closeSearchBtn" title="关闭">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </div>
+                            <div class="search-options">
+                                <label class="search-option">
+                                    <input type="checkbox" id="caseSensitive">
+                                    <span>Aa</span>
+                                </label>
+                                <label class="search-option">
+                                    <input type="checkbox" id="wholeWord">
+                                    <span>W</span>
+                                </label>
+                                <label class="search-option">
+                                    <input type="checkbox" id="useRegex">
+                                    <span>.*</span>
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <!-- 替换栏 -->
+                        <div class="replace-bar">
+                            <div class="replace-input-group">
+                                <i class="bi bi-arrow-left-right replace-icon"></i>
+                                <input type="text" id="replaceInput" class="replace-input" placeholder="替换为...">
+                                <button class="replace-btn" id="replaceCurrentBtn">
+                                    替换
+                                </button>
+                                <button class="replace-btn replace-all-btn" id="replaceAllBtn">
+                                    全部替换
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 执行任务列表 Modal（弹框形式，关闭不影响任务执行） -->
+    <div class="modal fade" id="executionsModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title"><i class="bi bi-list-checks me-2"></i>执行任务列表</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                            <select class="form-select form-select-sm w-auto d-inline me-2" id="executionsStatusFilter" onchange="loadExecutions()">
+                                <option value="">全部状态</option>
+                                <option value="running">运行中</option>
+                                <option value="success">成功</option>
+                                <option value="failed">失败</option>
+                                <option value="stopped">已停止</option>
+                            </select>
+                            <span class="text-muted small">记录保存1天</span>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-outline-secondary" id="refreshExecutionsBtn" onclick="loadExecutions()">
+                                <i class="bi bi-arrow-clockwise"></i> 刷新
+                            </button>
+                            <button class="btn btn-sm btn-outline-success" id="exportExecutionsBtn" onclick="exportExecutions()">
+                                <i class="bi bi-download"></i> 导出
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- 执行列表表格 -->
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th width="8%">ID</th>
+                                    <th width="35%">脚本路径</th>
+                                    <th width="12%">状态</th>
+                                    <th width="10%">退出码</th>
+                                    <th width="15%">开始时间</th>
+                                    <th width="15%">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="executionsTableBody">
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted py-4">暂无执行记录</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- 分页 -->
+                    <div id="executionsPagination" class="d-flex justify-content-center mt-3"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 执行详情 Modal -->
+    <div class="modal fade" id="executionDetailModal" tabindex="-1" data-bs-backdrop="static">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-file-text me-2"></i>执行详情
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label"><strong>脚本路径：</strong></label>
+                        <div class="text-break" id="detailScriptPath"></div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label"><strong>Python路径：</strong></label>
+                        <div class="text-break" id="detailPythonPath"></div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label"><strong>状态：</strong></label>
+                        <span id="detailStatus"></span>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label"><strong>退出码：</strong></label>
+                        <span id="detailReturnCode"></span>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label"><strong>开始时间：</strong></label>
+                        <span id="detailStartTime"></span>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label"><strong>结束时间：</strong></label>
+                        <span id="detailEndTime"></span>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label"><strong>执行日志：</strong></label>
+                        <div id="detailLogContent" class="border rounded p-3 bg-light" style="min-height: 200px; max-height: 400px; overflow-y: auto; font-family: 'Consolas', 'Monaco', monospace; font-size: 13px; white-space: pre-wrap;"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                    <button type="button" class="btn btn-danger" id="stopExecutionBtn" style="display: none;" onclick="stopExecutionFromDetail()">
+                        <i class="bi bi-stop-fill me-1"></i>停止执行
+                    </button>
+                    <button type="button" class="btn btn-danger" id="deleteExecutionBtn" onclick="deleteExecution()">
+                        <i class="bi bi-trash me-1"></i>删除记录
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 快速运行面板（原运行脚本弹窗简化版） -->
+    <div class="modal fade" id="quickRunModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title">
+                        <i class="bi bi-play-fill me-2"></i>快速运行
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label"><strong>选择Python解释器：</strong></label>
+                        <div class="input-group">
+                            <select class="form-select" id="quickPythonPathSelect">
+                                <option value="">加载中...</option>
+                            </select>
+                            <button class="btn btn-outline-secondary" type="button" onclick="toggleQuickPythonPathsPanel()" title="管理Python路径">
+                                <i class="bi bi-gear"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label"><strong>超时时间：</strong></label>
+                        <div class="input-group">
+                            <select class="form-select" id="quickTimeoutSelect">
+                                <option value="default">默认（300秒）</option>
+                                <option value="60">1分钟（60秒）</option>
+                                <option value="300">5分钟（300秒）</option>
+                                <option value="600">10分钟（600秒）</option>
+                                <option value="1800">30分钟（1800秒）</option>
+                                <option value="3000">50分钟（3000秒）</option>
+                                <option value="3600">60分钟（3600秒）</option>
+                                <option value="7200">120分钟（7200秒）</option>
+                                <option value="0">不限时长</option>
+                            </select>
+                        </div>
+                        <small class="text-muted">默认超时时间可在 config.py 中修改（EDITOR_SCRIPT_TIMEOUT）</small>
+                    </div>
+                    <div id="quickPythonPathsPanel" class="border rounded p-3 mb-3 bg-light" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h6 class="mb-0"><i class="bi bi-gear me-1"></i>Python路径管理</h6>
+                            <button class="btn btn-sm btn-primary" onclick="showQuickAddPathForm()">
+                                <i class="bi bi-plus-circle me-1"></i>添加地址
+                            </button>
+                        </div>
+                        <div id="quickAddPathForm" class="mb-2 p-2 border rounded bg-white" style="display: none;">
+                            <div class="input-group input-group-sm mb-2">
+                                <input type="text" class="form-control" id="quickNewPythonPath" placeholder="Python路径">
+                                <button class="btn btn-outline-primary" type="button" onclick="selectQuickPythonPath()" title="浏览选择">
+                                    <i class="bi bi-folder2-open"></i>
+                                </button>
+                                <button class="btn btn-success" type="button" onclick="addQuickPythonPath()">
+                                    <i class="bi bi-check-lg"></i> 添加
+                                </button>
+                                <button class="btn btn-outline-secondary" type="button" onclick="hideQuickAddPathForm()">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="table-responsive" style="max-height: 150px; overflow-y: auto;">
+                            <table class="table table-sm table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th width="60%">路径</th>
+                                        <th width="20%" class="text-center">默认</th>
+                                        <th width="20%" class="text-center">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="quickPythonPathsBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="alert alert-info mb-0">
+                        <i class="bi bi-info-circle me-2"></i>
+                        脚本将在后台执行，可在执行列表中查看进度和结果
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-success" id="quickExecuteBtn" onclick="quickExecuteScript()">
+                        <i class="bi bi-play-fill me-1"></i>开始执行
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 文件夹浏览器 Modal -->
+    <div class="modal fade" id="folderBrowserModal" tabindex="-1" data-bs-backdrop="static">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title">
+                        <i class="bi bi-folder2-open me-2"></i>选择文件夹
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- 快捷路径 -->
+                    <div class="mb-3">
+                        <label class="form-label"><strong>快捷访问：</strong></label>
+                        <div id="quickPaths" class="d-flex flex-wrap gap-2">
+                            <!-- 动态生成 -->
+                        </div>
+                    </div>
+                    <!-- 当前路径 -->
+                    <div class="mb-3">
+                        <label class="form-label"><strong>当前路径：</strong></label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="currentFolderPath" readonly>
+                            <button class="btn btn-outline-secondary" type="button" id="goUpBtn" onclick="goUpFolder()">
+                                <i class="bi bi-arrow-up"></i> 上级
+                            </button>
+                        </div>
+                    </div>
+                    <!-- 文件夹列表 -->
+                    <div class="list-group" id="folderList" style="max-height: 400px; overflow-y: auto;">
+                        <div class="text-center text-muted py-4">加载中...</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="confirmFolderSelection()">
+                        <i class="bi bi-check-lg me-1"></i>选择此文件夹
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 文件浏览器 Modal -->
+    <div class="modal fade" id="fileBrowserModal" tabindex="-1" data-bs-backdrop="static">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title">
+                        <i class="bi bi-file-earmark-binary me-2"></i>选择文件
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- 快捷路径 -->
+                    <div class="mb-3">
+                        <label class="form-label"><strong>快捷访问：</strong></label>
+                        <div id="fileQuickPaths" class="d-flex flex-wrap gap-2">
+                            <!-- 动态生成 -->
+                        </div>
+                    </div>
+                    <!-- 当前路径 -->
+                    <div class="mb-3">
+                        <label class="form-label"><strong>当前路径：</strong></label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="currentFilePath" readonly>
+                            <button class="btn btn-outline-secondary" type="button" onclick="fileBrowser.goUp()">
+                                <i class="bi bi-arrow-up"></i> 上级
+                            </button>
+                        </div>
+                    </div>
+                    <!-- 文件夹和文件列表 -->
+                    <div id="fileList" style="max-height: 400px; overflow-y: auto;">
+                        <div class="text-center text-muted py-4">加载中...</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 右键菜单 -->
+<div class="context-menu" id="contextMenu">
+    <div class="context-menu-item" id="ctxRename">
+        <i class="bi bi-pencil"></i> 重命名
+    </div>
+    <div class="context-menu-item" id="ctxNewFile">
+        <i class="bi bi-file-earmark-plus"></i> 新建文件
+    </div>
+    <div class="context-menu-item" id="ctxNewFolder">
+        <i class="bi bi-folder-plus"></i> 新建文件夹
+    </div>
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-item" id="ctxBackupItem">
+        <i class="bi bi-archive"></i> 备份此项
+    </div>
+    <div class="context-menu-divider"></div>
+    <div class="context-menu-item danger" id="ctxDelete">
+        <i class="bi bi-trash"></i> 删除
+    </div>
+</div>
+
+<!-- 创建备份 Modal -->
+<div class="modal fade" id="backupModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-archive me-2"></i>创建备份
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">备份内容</label>
+                    <input type="text" class="form-control" id="backupSourcePath" readonly>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-4">
+                        <label class="form-label">内容类型</label>
+                        <input type="text" class="form-control" id="backupSourceType" readonly>
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label">文件数量</label>
+                        <input type="text" class="form-control" id="backupFileCount" readonly>
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label">总大小</label>
+                        <input type="text" class="form-control" id="backupTotalSize" readonly>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">备份到</label>
+                    <select class="form-select" id="backupTargetSelect"></select>
+                    <div class="form-text">
+                        <a href="/backup/" target="_blank">在备份管理中添加/管理备份目录</a>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">备份名称</label>
+                    <input type="text" class="form-control" id="backupRecordName" placeholder="留空则自动生成">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="confirmBackupBtn">
+                    <i class="bi bi-archive me-1"></i>开始备份
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<!-- 引入 CodeMirror - 本地资源 -->
+<script src="{{ url_for('static', filename='vendor/codemirror/lib/codemirror.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/codemirror/mode/python/python.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/codemirror/mode/javascript/javascript.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/codemirror/mode/xml/xml.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/codemirror/mode/css/css.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/codemirror/mode/htmlmixed/htmlmixed.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/codemirror/mode/markdown/markdown.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/codemirror/mode/json/json.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/codemirror/addon/edit/matchbrackets.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/codemirror/addon/selection/active-line.js') }}"></script>
+<!-- 搜索功能插件 -->
+<script src="{{ url_for('static', filename='vendor/codemirror/addon/search/searchcursor.js') }}"></script>
+<!-- 备份模块 JS -->
+<script src="{{ url_for('static', filename='js/backup.js') }}"></script>
+
+<script>
+var currentProjectPath = '';
+var currentFile = null;
+var editor = null;
+var contextMenuTarget = null;
+var _lockHeartbeatTimer = null;  // 项目锁心跳定时器
+var _sessionToken = Math.random().toString(36).slice(2) + Date.now().toString(36);  // 浏览器会话标识
+
+// 多标签页管理
+var openFiles = [];        // [{path, name, content, mode, isModified, doc(CodeMirror.Doc), scrollInfo, cursor}]
+var activeFilePath = null;  // 当前活动标签的文件路径
+
+// 查找文件记录的辅助函数
+function findFile(path) {
+    for (var i = 0; i < openFiles.length; i++) {
+        if (openFiles[i].path === path) return openFiles[i];
+    }
+    return null;
+}
+
+// escapeHtml() 和 showToast() 已在 app.js 中全局定义，此处不再重复
+
+// ============================================================
+// 项目独占锁
+// ============================================================
+function _startLockHeartbeat() {
+    _stopLockHeartbeat();
+    _lockHeartbeatTimer = setInterval(function() {
+        if (!currentProjectPath) return;
+        $.ajax({
+            url: '/file-editor/api/lock/heartbeat',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ project_path: currentProjectPath, session_token: _sessionToken }),
+            error: function(xhr) {
+                var res = xhr.responseJSON || {};
+                if (xhr.status === 409 && res.data && res.data.lock_taken) {
+                    showToast('您的编辑权已被同一账号的其他浏览器会话接管', 'warning');
+                    _stopLockHeartbeat();
+                    currentProjectPath = '';
+                    $('#projectSelectPanel').removeClass('d-none');
+                    $('#editorPanel').addClass('d-none');
+                    loadSavedProjects();
+                }
+            }
+        });
+    }, 60000);  // 每60秒心跳一次
+}
+
+function _stopLockHeartbeat() {
+    if (_lockHeartbeatTimer) {
+        clearInterval(_lockHeartbeatTimer);
+        _lockHeartbeatTimer = null;
+    }
+}
+
+function unlockProject(path) {
+    _stopLockHeartbeat();
+    if (!path) return;
+    // 使用 sendBeacon 确保页面关闭时也能发送
+    var data = JSON.stringify({ project_path: path });
+    if (navigator.sendBeacon) {
+        navigator.sendBeacon('/file-editor/api/unlock', new Blob([data], { type: 'application/json' }));
+    } else {
+        // 兑底方案：同步 AJAX
+        $.ajax({
+            url: '/file-editor/api/unlock',
+            method: 'POST',
+            contentType: 'application/json',
+            data: data,
+            async: false
+        });
+    }
+}
+
+// ============================================================
+// 文件浏览器功能
+// ============================================================
+
+// 选择项目路径（文件夹）
+var folderBrowserCallback = null;
+
+function selectProjectPath() {
+    folderBrowserCallback = function(path) {
+        $('#modalProjectPath').val(path);
+        showToast('已选择文件夹: ' + path, 'success');
+    };
+    
+    showFolderBrowser();
+}
+
+// 显示文件夹浏览器
+function showFolderBrowser(initialPath) {
+    var el = document.getElementById('folderBrowserModal');
+    var modal = bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el);
+    modal.show();
+    
+    loadFolders(initialPath || '');
+}
+
+// 加载文件夹列表
+function loadFolders(path) {
+    var $folderList = $('#folderList');
+    var $quickPaths = $('#quickPaths');
+    var $currentPath = $('#currentFolderPath');
+    
+    $folderList.html('<div class="text-center text-muted py-4"><div class="spinner-border"></div><div class="mt-2">加载中...</div></div>');
+    
+    $.ajax({
+        url: '/file-editor/api/browse/folders',
+        method: 'GET',
+        data: { path: path || '' },
+        success: function(res) {
+            if (res.code === 200) {
+                if (res.data.type === 'quick_paths') {
+                    // 显示快捷路径
+                    var html = '';
+                    $.each(res.data.paths, function(key, value) {
+                        var labels = {
+                            'current_dir': '📁 当前目录',
+                            'home_dir': '🏠 用户目录',
+                            'desktop': '🖥️ 桌面',
+                            'documents': '📄 文档',
+                            'downloads': '⬇️ 下载',
+                            'c_drive': '💾 C盘',
+                            'd_drive': '💾 D盘',
+                            'e_drive': '💾 E盘',
+                        };
+                        html += '<button class="btn btn-sm btn-outline-primary folder-browse-quick" data-path="' + escapeHtml(value) + '">' + (labels[key] || key) + '</button>';
+                    });
+                    $quickPaths.html(html);
+                    $currentPath.val('请选择文件夹');
+                    $folderList.html('<div class="text-center text-muted py-4">请点击上方快捷路径开始浏览</div>');
+                } else {
+                    // 显示文件夹列表
+                    $currentPath.val(res.data.current_path);
+                    
+                    // 更新上级按钮状态
+                    $('#goUpBtn').prop('disabled', !res.data.parent_path);
+                    
+                    var html = '';
+                    
+                    // 上级文件夹
+                    if (res.data.parent_path) {
+                        html += '<button class="list-group-item list-group-item-action folder-browse-nav" data-path="' + escapeHtml(res.data.parent_path) + '">';
+                        html += '<i class="bi bi-arrow-up-circle text-primary me-2"></i><strong>.. 上级文件夹</strong>';
+                        html += '</button>';
+                    }
+                    
+                    // 文件夹列表
+                    if (res.data.folders.length === 0) {
+                        html += '<div class="list-group-item text-muted text-center">此文件夹为空</div>';
+                    } else {
+                        res.data.folders.forEach(function(folder) {
+                            html += '<button class="list-group-item list-group-item-action folder-browse-nav" data-path="' + escapeHtml(folder.path) + '">';
+                            html += '<i class="bi bi-folder text-warning me-2"></i>' + escapeHtml(folder.name);
+                            html += '</button>';
+                        });
+                    }
+                    
+                    $folderList.html(html);
+                }
+            } else {
+                $folderList.html('<div class="list-group-item text-danger">' + escapeHtml(res.msg) + '</div>');
+            }
+        },
+        error: function(xhr) {
+            var msg = (xhr.responseJSON || {}).msg || '加载失败';
+            $folderList.html('<div class="list-group-item text-danger">' + escapeHtml(msg) + '</div>');
+        }
+    });
+}
+
+// 上级文件夹
+function goUpFolder() {
+    var currentPath = $('#currentFolderPath').val();
+    if (currentPath && currentPath !== '请选择文件夹') {
+        var lastSlash = currentPath.lastIndexOf('\\');
+        if (lastSlash === -1) lastSlash = currentPath.lastIndexOf('/');
+        var parentPath = currentPath.substring(0, lastSlash);
+        if (parentPath) {
+            loadFolders(parentPath);
+        }
+    }
+}
+
+// 确认选择文件夹
+function confirmFolderSelection() {
+    var selectedPath = $('#currentFolderPath').val();
+    if (selectedPath && selectedPath !== '请选择文件夹') {
+        if (folderBrowserCallback) {
+            folderBrowserCallback(selectedPath);
+        }
+        bootstrap.Modal.getInstance(document.getElementById('folderBrowserModal')).hide();
+    } else {
+        showToast('请先选择一个文件夹', 'warning');
+    }
+}
+
+// 文件浏览器（使用 app.js 共享模块）
+var fileBrowser = AppFileBrowser({
+    modalId: 'fileBrowserModal',
+    fileListId: 'fileList',
+    quickPathsId: 'fileQuickPaths',
+    currentPathId: 'currentFilePath',
+    varName: 'fileBrowser'
+});
+function showFileBrowser(initialPath, fileTypes) { fileBrowser.show(initialPath, fileTypes); }
+
+// 初始化 CodeMirror 和事件绑定
+$(document).ready(function() {
+    editor = CodeMirror.fromTextArea(document.getElementById('codeEditor'), {
+        lineNumbers: true,
+        theme: 'monokai',
+        matchBrackets: true,
+        styleActiveLine: true,
+        indentUnit: 4,
+        tabSize: 4,
+        indentWithTabs: false,
+        lineWrapping: true,
+        autofocus: true
+    });
+    
+// 监听编辑器内容变化，标记文件已修改
+editor.on('change', function() {
+    if (!activeFilePath) return;
+    var fileEntry = findFile(activeFilePath);
+    if (fileEntry && !fileEntry.isModified) {
+        fileEntry.isModified = true;
+        renderFileTabs();
+    }
+});
+    
+    // 初始化Python路径
+    pyPathMgr.init();
+    
+    // 检查是否有 URL 参数（从任务列表跳转过来）
+    var urlParams = new URLSearchParams(window.location.search);
+    var autoOpenFile = urlParams.get('file');
+    
+    if (autoOpenFile) {
+        // 从文件路径提取项目目录
+        var lastBackslash = autoOpenFile.lastIndexOf('\\');
+        var lastSlash = autoOpenFile.lastIndexOf('/');
+        var lastSep = Math.max(lastBackslash, lastSlash);
+        var projectDir = lastSep > 0 ? autoOpenFile.substring(0, lastSep) : '';
+        if (projectDir) {
+            openProject(projectDir, function() {
+                // 项目加载完成后，自动打开指定文件
+                setTimeout(function() {
+                    openFile(autoOpenFile);
+                }, 500);
+            }, false);  // 临时打开，不保存为新项目
+        }
+    } else {
+        // 加载已保存的项目列表
+        loadSavedProjects();
+    }
+    
+    // 绑定切换项目按钮
+    $('#changeProjectBtn').click(function() {
+        // 释放当前项目的锁
+        if (currentProjectPath) {
+            unlockProject(currentProjectPath);
+        }
+        $('#projectSelectPanel').removeClass('d-none');
+        $('#editorPanel').addClass('d-none');
+        $('#projectPathInput').val(currentProjectPath);
+        loadSavedProjects();
+    });
+    
+    // 绑定查看项目按钮（事件委托）
+    $(document).on('click', '.btn-view-project', function() {
+        var path = $(this).data('path');
+        if (path) {
+            openProject(path);
+        }
+    });
+    
+    // 绑定编辑项目按钮（事件委托，通过 data-* 属性传参，避免转义问题）
+    $(document).on('click', '.btn-edit-project', function() {
+        var $btn = $(this);
+        showEditProjectModal(
+            $btn.data('id'),
+            $btn.data('name'),
+            $btn.data('path'),
+            $btn.data('desc')
+        );
+    });
+    
+    // 绑定删除项目按钮（事件委托）
+    $(document).on('click', '.btn-delete-project', function() {
+        var $btn = $(this);
+        deleteProject($btn.data('id'), $btn.data('name'));
+    });
+    
+    // 文件树拖拽调整宽度
+    initTreeResize();
+    
+    // 文件标签页事件委托（只绑定一次，避免每次渲染重建）
+    $('#fileTabs').on('click', '.tab-close', function(e) {
+        e.stopPropagation();
+        closeFileTab($(this).closest('.file-tab').data('path'));
+    }).on('click', '.file-tab', function(e) {
+        if ($(e.target).closest('.tab-close').length) return;
+        switchToFile($(this).data('path'));
+    });
+    
+    // 弹框回车键支持
+    $('#createFileName').on('keypress', function(e) {
+        if (e.which === 13) {
+            confirmCreateFile();
+        }
+    });
+    
+    $('#renameNewName').on('keypress', function(e) {
+        if (e.which === 13) {
+            confirmRename();
+        }
+    });
+    
+    // 内嵌添加Python路径回车键支持
+    $(document).on('keypress', '#inlineNewPythonPath', function(e) {
+        if (e.which === 13) {
+            addPythonPathInline();
+        }
+    });
+    
+    // 文件夹浏览器导航按钮（事件委托，避免 inline onclick 转义问题）
+    $(document).on('click', '.folder-browse-quick, .folder-browse-nav', function() {
+        var path = $(this).data('path');
+        if (path) {
+            loadFolders(path);
+        }
+    });
+    
+    // 页面关闭 / 跳转时释放项目锁
+    $(window).on('beforeunload', function() {
+        if (currentProjectPath) {
+            unlockProject(currentProjectPath);
+        }
+    });
+});
+
+// 初始化文件树拖拽调整宽度
+function initTreeResize() {
+    var resizeHandle = document.getElementById('resizeHandle');
+    var treePanel = document.getElementById('fileTreePanel');
+    var isResizing = false;
+    var startX;
+    var startWidth;
+    
+    if (!resizeHandle || !treePanel) return;
+    
+    // 鼠标按下
+    resizeHandle.addEventListener('mousedown', function(e) {
+        isResizing = true;
+        startX = e.clientX;
+        startWidth = treePanel.offsetWidth;
+        resizeHandle.classList.add('resizing');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+    });
+    
+    // 鼠标移动
+    document.addEventListener('mousemove', function(e) {
+        if (!isResizing) return;
+        
+        var diff = e.clientX - startX;
+        var newWidth = startWidth + diff;
+        
+        // 限制最小和最大宽度
+        if (newWidth >= 200 && newWidth <= 600) {
+            treePanel.style.width = newWidth + 'px';
+            treePanel.style.minWidth = newWidth + 'px';
+            treePanel.style.maxWidth = newWidth + 'px';
+        }
+    });
+    
+    // 鼠标释放
+    document.addEventListener('mouseup', function() {
+        if (isResizing) {
+            isResizing = false;
+            resizeHandle.classList.remove('resizing');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        }
+    });
+}
+
+// 加载已保存的项目列表
+function loadSavedProjects() {
+    $.ajax({
+        url: '/file-editor/api/projects',
+        method: 'GET',
+        success: function(res) {
+            if (res.code === 200) {
+                renderProjectsTable(res.data.projects);
+            } else {
+                showToast(res.msg, 'danger');
+            }
+        },
+        error: function(xhr) {
+            showToast((xhr.responseJSON || {}).msg || '加载项目列表失败', 'danger');
+        }
+    });
+}
+
+// 渲染项目列表表格
+function renderProjectsTable(projects) {
+    var tbody = document.getElementById('projectsTableBody');
+    var html = '';
+    
+    if (projects.length === 0) {
+        html = '<tr><td colspan="5" class="text-center text-muted py-4">';
+        html += '<i class="bi bi-inbox" style="font-size: 2rem;"></i>';
+        html += '<div class="mt-2">暂无项目，请点击右上角“新增项目”添加</div>';
+        html += '</td></tr>';
+    } else {
+        projects.forEach(function(project) {
+            html += '<tr>';
+            html += '<td><strong>' + escapeHtml(project.project_name) + '</strong>';
+            if (project.description) {
+                html += '<br><small class="text-muted">' + escapeHtml(project.description) + '</small>';
+            }
+            html += '</td>';
+            html += '<td><code class="text-truncate d-inline-block" style="max-width: 100%;" title="' + escapeHtml(project.project_path) + '">';
+            html += escapeHtml(truncatePath(project.project_path)) + '</code></td>';
+            html += '<td><small>' + formatDateTime(project.created_at) + '</small></td>';
+            html += '<td><small>' + formatDateTime(project.last_accessed_at) + '</small></td>';
+            html += '<td class="text-center">';
+            html += '<div class="btn-group btn-group-sm">';
+            // 使用 data-path 属性存储路径，避免转义问题
+            html += '<button class="btn btn-outline-primary btn-view-project" data-path="' + 
+                    project.project_path.replace(/"/g, '&quot;') + '" title="查看">';
+            html += '<i class="bi bi-folder2-open"></i> 查看</button>';
+            // 使用 data-* 属性存储数据，避免 inline onclick 转义问题
+            html += '<button class="btn btn-outline-secondary btn-edit-project" ' +
+                    'data-id="' + project.id + '" ' +
+                    'data-name="' + escapeHtml(project.project_name) + '" ' +
+                    'data-path="' + escapeHtml(project.project_path) + '" ' +
+                    'data-desc="' + escapeHtml(project.description || '') + '" title="编辑">';
+            html += '<i class="bi bi-pencil"></i></button>';
+            html += '<button class="btn btn-outline-danger btn-delete-project" ' +
+                    'data-id="' + project.id + '" ' +
+                    'data-name="' + escapeHtml(project.project_name) + '" title="删除">';
+            html += '<i class="bi bi-trash"></i></button>';
+            html += '</div></td></tr>';
+        });
+    }
+    
+    tbody.innerHTML = html;
+}
+
+// 显示新增项目弹框
+function showAddProjectModal() {
+    document.getElementById('projectModalTitle').innerHTML = '<i class="bi bi-folder-plus me-2"></i>新增项目';
+    document.getElementById('editProjectId').value = '';
+    document.getElementById('modalProjectName').value = '';
+    document.getElementById('modalProjectPath').value = '';
+    document.getElementById('modalProjectDesc').value = '';
+    
+    var el = document.getElementById('projectModal');
+    var modal = bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el);
+    modal.show();
+}
+
+// 显示编辑项目弹框
+function showEditProjectModal(id, name, path, desc) {
+    document.getElementById('projectModalTitle').innerHTML = '<i class="bi bi-pencil-square me-2"></i>编辑项目';
+    document.getElementById('editProjectId').value = id;
+    document.getElementById('modalProjectName').value = name;
+    document.getElementById('modalProjectPath').value = path;
+    document.getElementById('modalProjectDesc').value = desc;
+    
+    var el = document.getElementById('projectModal');
+    var modal = bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el);
+    modal.show();
+}
+
+// 保存项目（新增或编辑）
+function saveProject() {
+    var id = document.getElementById('editProjectId').value;
+    var name = document.getElementById('modalProjectName').value.trim();
+    var path = document.getElementById('modalProjectPath').value.trim();
+    var desc = document.getElementById('modalProjectDesc').value.trim();
+    
+    if (!name) {
+        showToast('请输入项目名称', 'warning');
+        document.getElementById('modalProjectName').focus();
+        return;
+    }
+    
+    if (!path) {
+        showToast('请输入项目路径', 'warning');
+        document.getElementById('modalProjectPath').focus();
+        return;
+    }
+    
+    var url = id ? '/file-editor/api/project/' + id : '/file-editor/api/project';
+    var method = id ? 'PUT' : 'POST';
+    
+    $.ajax({
+        url: url,
+        method: method,
+        contentType: 'application/json',
+        data: JSON.stringify({
+            project_name: name,
+            project_path: path,
+            description: desc || null
+        }),
+        success: function(res) {
+            if (res.code === 200) {
+                showToast(id ? '项目已更新' : '项目已添加', 'success');
+                bootstrap.Modal.getInstance(document.getElementById('projectModal')).hide();
+                loadSavedProjects();
+            } else {
+                showToast(res.msg, 'danger');
+            }
+        },
+        error: function(xhr) {
+            showToast((xhr.responseJSON || {}).msg || '保存失败', 'danger');
+        }
+    });
+}
+
+// 删除项目
+function deleteProject(id, name) {
+    if (!confirm('确定要删除项目 "' + name + '" 吗？\n注意：这只会删除记录，不会删除实际文件。')) {
+        return;
+    }
+    
+    $.ajax({
+        url: '/file-editor/api/project/' + id,
+        method: 'DELETE',
+        success: function(res) {
+            if (res.code === 200) {
+                showToast('项目已删除', 'success');
+                loadSavedProjects();
+            } else {
+                showToast(res.msg, 'danger');
+            }
+        },
+        error: function(xhr) {
+            showToast((xhr.responseJSON || {}).msg || '删除失败', 'danger');
+        }
+    });
+}
+
+// 清空编辑器状态（切换项目时调用）
+function clearEditorState() {
+    // 关闭所有标签页（不弹确认框）
+    openFiles = [];
+    activeFilePath = null;
+    currentFile = null;
+    
+    // 清空编辑器内容
+    editor.setValue('');
+    editor.clearHistory();
+    
+    // 清空标签页
+    renderFileTabs();
+    
+    // 显示欢迎页
+    $('#welcomeScreen').removeClass('d-none');
+    $('#codeEditor').addClass('d-none');
+    $('#saveFileBtn, #closeFileBtn').prop('disabled', true);
+    $('#runScriptBtn').prop('disabled', true);
+    $('.tree-item').removeClass('active');
+}
+
+// 打开项目
+function openProject(path, onReady, autoSave) {
+    // 如果路径没变，直接返回（避免重复加载）
+    if (currentProjectPath === path && !$('#editorPanel').hasClass('d-none')) {
+        document.getElementById('projectSelectPanel').classList.add('d-none');
+        document.getElementById('editorPanel').classList.remove('d-none');
+        if (onReady) onReady();
+        return;
+    }
+    
+    // 先尝试获取项目独占锁
+    $.ajax({
+        url: '/file-editor/api/lock',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ project_path: path, session_token: _sessionToken }),
+        success: function(lockRes) {
+            if (lockRes.code === 200) {
+                var sameSession = lockRes.data && lockRes.data.same_session;
+                if (sameSession) {
+                    if (!confirm('该项目正在由同一账号的其他浏览器会话编辑。\n继续打开将接管该项目的编辑权，对方将无法保存。\n\n确定要接管吗？')) {
+                        $('#projectSelectPanel').removeClass('d-none');
+                        $('#editorPanel').addClass('d-none');
+                        loadSavedProjects();
+                        return;
+                    }
+                    // 用户确认接管，发送 force_takeover 请求真正获取锁
+                    $.ajax({
+                        url: '/file-editor/api/lock',
+                        method: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify({ project_path: path, session_token: _sessionToken, force_takeover: true }),
+                        success: function(takeoverRes) {
+                            if (takeoverRes.code === 200) {
+                                _doOpenProject(path, onReady, autoSave);
+                            } else {
+                                showToast(takeoverRes.msg || '接管项目失败', 'danger');
+                                $('#projectSelectPanel').removeClass('d-none');
+                                $('#editorPanel').addClass('d-none');
+                                loadSavedProjects();
+                            }
+                        },
+                        error: function() {
+                            showToast('接管项目失败', 'danger');
+                            $('#projectSelectPanel').removeClass('d-none');
+                            $('#editorPanel').addClass('d-none');
+                            loadSavedProjects();
+                        }
+                    });
+                    return;
+                }
+                _doOpenProject(path, onReady, autoSave);
+            } else {
+                showToast(lockRes.msg || '项目已被其他用户锁定', 'warning');
+                $('#projectSelectPanel').removeClass('d-none');
+                $('#editorPanel').addClass('d-none');
+                loadSavedProjects();
+            }
+        },
+        error: function(xhr) {
+            var res = xhr.responseJSON || {};
+            if (xhr.status === 409) {
+                showToast(res.msg || '项目已被其他用户锁定，请稍后再试', 'warning');
+                $('#projectSelectPanel').removeClass('d-none');
+                $('#editorPanel').addClass('d-none');
+                loadSavedProjects();
+            } else {
+                showToast(res.msg || '锁定项目失败', 'danger');
+            }
+        }
+    });
+}
+
+// 实际打开项目的内部函数（锁已获取后调用）
+function _doOpenProject(path, onReady, autoSave) {
+    // 切换项目时释放旧项目的锁
+    if (currentProjectPath && currentProjectPath !== path) {
+        unlockProject(currentProjectPath);
+    }
+    
+    // 清空旧状态（防止显示上一次项目的内容）
+    clearEditorState();
+    
+    currentProjectPath = path;
+    
+    // 显示加载状态
+    $('#fileTree').html('<div class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm"></div><div class="mt-2">加载中...</div></div>');
+    
+    // 获取项目名称
+    $.ajax({
+        url: '/file-editor/api/init',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            project_path: path,
+            save_project: !!autoSave  // 从任务列表跳转时自动保存为项目
+        }),
+        success: function(res) {
+            if (res.code === 200) {
+                document.getElementById('projectName').textContent = res.data.project_name;
+                document.getElementById('projectSelectPanel').classList.add('d-none');
+                document.getElementById('editorPanel').classList.remove('d-none');
+                loadFileTree(function() {
+                    if (onReady) onReady();
+                });
+                showToast('项目打开成功', 'success');
+                // 启动锁心跳，保持项目独占
+                _startLockHeartbeat();
+            } else {
+                showToast(res.msg, 'danger');
+            }
+        },
+        error: function(xhr) {
+            showToast((xhr.responseJSON || {}).msg || '打开项目失败', 'danger');
+        }
+    });
+}
+
+// 截断路径显示
+function truncatePath(path) {
+    if (path.length <= 40) {
+        return path;
+    }
+    var parts = path.split(/[\\\/]/);
+    if (parts.length <= 3) {
+        return path.substring(0, 37) + '...';
+    }
+    return parts[0] + '\\...\\' + parts[parts.length - 2] + '\\' + parts[parts.length - 1];
+}
+
+// 加载文件树（懒加载模式，只加载第一层）
+function loadFileTree(callback) {
+    $.ajax({
+        url: '/file-editor/api/tree',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ project_path: currentProjectPath }),
+        success: function(res) {
+            if (res.code === 200) {
+                renderFileTree(res.data.tree);
+                if (callback) callback();
+            } else {
+                showToast(res.msg, 'danger');
+            }
+        },
+        error: function(xhr) {
+            showToast((xhr.responseJSON || {}).msg || '加载文件树失败', 'danger');
+        }
+    });
+}
+
+// 懒加载子目录内容
+function loadChildren(folderPath, $node, onComplete) {
+    var $children = $node.find('> .tree-children');
+    
+    // 显示加载状态
+    $children.html('<div class="text-muted py-1" style="padding-left: 20px;"><small>加载中...</small></div>');
+    $children.addClass('expanded');
+    
+    $.ajax({
+        url: '/file-editor/api/tree',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            project_path: currentProjectPath,
+            sub_dir: folderPath
+        }),
+        success: function(res) {
+            if (res.code === 200) {
+                if (res.data.tree.length === 0) {
+                    $children.html('<div class="text-muted py-1" style="padding-left: 20px;"><small>空文件夹</small></div>');
+                } else {
+                    $children.html(renderTreeNodes(res.data.tree));
+                }
+                // 标记为已加载
+                $node.attr('data-loaded', 'true');
+            } else {
+                $children.html('<div class="text-danger py-1" style="padding-left: 20px;"><small>' + escapeHtml(res.msg) + '</small></div>');
+            }
+            if (onComplete) onComplete();
+        },
+        error: function(xhr) {
+            $children.html('<div class="text-danger py-1" style="padding-left: 20px;"><small>加载失败</small></div>');
+            if (onComplete) onComplete();
+        }
+    });
+}
+
+// 增量更新文件树（只更新变化的部分）
+function updateFileTreeItem(action, path, type, newName) {
+    // 统一路径分隔符（全部转为反斜杠，匹配Windows路径）
+    path = path.replace(/\//g, '\\');
+    
+    // 找到父节点
+    var lastSep = path.lastIndexOf('\\');
+    var parentPath = lastSep > 0 ? path.substring(0, lastSep) : '';
+    
+    var $parentNode = $('.tree-node[data-path="' + escapeHtml(parentPath) + '"]');
+    
+    if ($parentNode.length === 0) {
+        // 尝试模糊匹配（路径包含关系）
+        $('.tree-node').each(function() {
+            var nodePath = $(this).data('path');
+            if (nodePath && nodePath.replace(/\//g, '\\') === parentPath) {
+                $parentNode = $(this);
+                return false;
+            }
+        });
+    }
+    
+    // 如果找不到父节点，刷新整个树
+    if ($parentNode.length === 0) {
+        loadFileTree();
+        return;
+    }
+    
+    // 懒加载适配：如果父文件夹未加载，重新加载它
+    if ($parentNode.data('type') === 'folder' && $parentNode.attr('data-loaded') !== 'true') {
+        loadChildren(parentPath, $parentNode);
+        return;
+    }
+    
+    // 展开父节点
+    var $children = $parentNode.find('> .tree-children');
+    var $icon = $parentNode.find('> .tree-item .expand-icon');
+    
+    // 如果没有children容器，说明这是一个空文件夹，需要创建
+    if ($children.length === 0) {
+        $children = $('<div class="tree-children"></div>');
+        $parentNode.append($children);
+        // 添加展开图标
+        if ($icon.length === 0) {
+            $icon = $('<i class="bi bi-caret-down-fill expand-icon"></i>');
+            $parentNode.find('> .tree-item').prepend($icon);
+        }
+    }
+    
+    $children.addClass('expanded');
+    if ($icon.length > 0) {
+        $icon.removeClass('bi-caret-right-fill').addClass('bi-caret-down-fill');
+    }
+    
+    if (action === 'add') {
+        // 添加新节点
+        var icon = type === 'folder' ? 'bi-folder' : getFileIcon('.' + newName.split('.').pop());
+        var html = '<div class="tree-node" data-path="' + escapeHtml(path) + '" data-type="' + type + '">';
+        html += '<div class="tree-item" data-path="' + escapeHtml(path) + '" data-type="' + type + '">';
+        html += '<span style="width: 16px; display: inline-block;"></span>';
+        html += '<i class="bi ' + icon + ' icon"></i>';
+        html += '<span class="file-name" title="' + escapeHtml(newName) + '">' + escapeHtml(newName) + '</span>';
+        html += '<div class="tree-actions">';
+        if (type === 'folder') {
+            html += '<button class="toolbar-btn btn-new-file-in" title="新建文件"><i class="bi bi-file-earmark-plus"></i></button>';
+        }
+        html += '<button class="toolbar-btn btn-rename" title="重命名"><i class="bi bi-pencil"></i></button>';
+        html += '<button class="toolbar-btn btn-delete" title="删除"><i class="bi bi-trash text-danger"></i></button>';
+        html += '</div></div>';
+        if (type === 'folder') {
+            html += '<div class="tree-children"></div>';
+        }
+        html += '</div>';
+        
+        $children.append(html);
+        
+        // 如果是文件，自动打开
+        if (type === 'file') {
+            setTimeout(function() {
+                openFile(path);
+            }, 300);
+        }
+    } else if (action === 'delete') {
+        // 删除节点
+        var $node = $('.tree-node[data-path="' + escapeHtml(path) + '"]');
+        if ($node.length === 0) {
+            // 尝试模糊匹配
+            $('.tree-node').each(function() {
+                var nodePath = $(this).data('path');
+                if (nodePath && nodePath.replace(/\//g, '\\') === path) {
+                    $node = $(this);
+                    return false;
+                }
+            });
+        }
+        $node.remove();
+        
+        // 如果删除的是当前打开的文件，关闭编辑器
+        if (currentFile && currentFile.path === path) {
+            $('#closeFileBtn').click();
+        }
+    } else if (action === 'rename') {
+        // 重命名后直接刷新整棵树，确保所有子节点路径、标签页都正确
+        loadFileTree();
+    }
+}
+
+// 渲染文件树
+function renderFileTree(tree) {
+    var html = '';
+    if (tree.length === 0) {
+        html = '<div class="text-center text-muted py-4">空文件夹</div>';
+    } else {
+        html = renderTreeNodes(tree);
+    }
+    $('#fileTree').html(html);
+}
+
+// 渲染树节点（懒加载模式：文件夹默认折叠，不渲染 children）
+function renderTreeNodes(nodes) {
+    var html = '';
+    
+    $.each(nodes, function(i, node) {
+        var icon = node.type === 'folder' ? 'bi-folder' : getFileIcon(node.extension);
+        var hasChildren = node.type === 'folder' && node.has_children;
+        
+        html += '<div class="tree-node" data-path="' + escapeHtml(node.path) + '" data-type="' + node.type + '">';
+        html += '<div class="tree-item" data-path="' + escapeHtml(node.path) + '" data-type="' + node.type + '">';
+        
+        if (hasChildren) {
+            html += '<i class="bi bi-caret-right-fill expand-icon"></i>';
+        } else {
+            html += '<span style="width: 16px; display: inline-block;"></span>';
+        }
+        
+        html += '<i class="bi ' + icon + ' icon"></i>';
+        html += '<span class="file-name" title="' + escapeHtml(node.name) + '">' + escapeHtml(node.name) + '</span>';
+        
+        // 操作按钮
+        html += '<div class="tree-actions">';
+        if (node.type === 'folder') {
+            html += '<button class="toolbar-btn btn-new-file-in" title="新建文件"><i class="bi bi-file-earmark-plus"></i></button>';
+        }
+        html += '<button class="toolbar-btn btn-rename" title="重命名"><i class="bi bi-pencil"></i></button>';
+        html += '<button class="toolbar-btn btn-delete" title="删除"><i class="bi bi-trash text-danger"></i></button>';
+        html += '</div>';
+        
+        html += '</div>';
+        
+        // 懒加载：有子内容的文件夹预留容器，但不渲染内容
+        if (node.type === 'folder' && hasChildren) {
+            html += '<div class="tree-children">';
+            html += '</div>';
+        }
+        
+        html += '</div>';
+    });
+    
+    return html;
+}
+
+// 获取文件图标
+function getFileIcon(ext) {
+    var icons = {
+        '.py': 'bi-file-earmark-code text-primary',
+        '.js': 'bi-file-earmark-code text-warning',
+        '.jsx': 'bi-file-earmark-code text-warning',
+        '.ts': 'bi-file-earmark-code text-info',
+        '.tsx': 'bi-file-earmark-code text-info',
+        '.html': 'bi-file-earmark-text text-danger',
+        '.htm': 'bi-file-earmark-text text-danger',
+        '.css': 'bi-file-earmark-text text-info',
+        '.scss': 'bi-file-earmark-text text-info',
+        '.less': 'bi-file-earmark-text text-info',
+        '.json': 'bi-file-earmark-text text-success',
+        '.md': 'bi-file-earmark-richtext',
+        '.markdown': 'bi-file-earmark-richtext',
+        '.txt': 'bi-file-earmark-text',
+        '.log': 'bi-file-earmark-text text-secondary',
+        '.yml': 'bi-file-earmark-text',
+        '.yaml': 'bi-file-earmark-text',
+        '.xml': 'bi-file-earmark-text',
+        '.sql': 'bi-file-earmark-text text-primary',
+        '.php': 'bi-file-earmark-code text-info',
+        '.java': 'bi-file-earmark-code text-danger',
+        '.c': 'bi-file-earmark-code',
+        '.cpp': 'bi-file-earmark-code',
+        '.h': 'bi-file-earmark-code',
+        '.go': 'bi-file-earmark-code',
+        '.rb': 'bi-file-earmark-code text-danger',
+        '.sh': 'bi-file-earmark-code text-success',
+        '.bat': 'bi-file-earmark-code',
+        '.cmd': 'bi-file-earmark-code',
+        '.ps1': 'bi-file-earmark-code',
+        '.ini': 'bi-file-earmark-text',
+        '.conf': 'bi-file-earmark-text',
+        '.cfg': 'bi-file-earmark-text',
+        '.env': 'bi-file-earmark-text text-warning',
+        '.gitignore': 'bi-file-earmark-text',
+        '.dockerfile': 'bi-file-earmark-text text-info',
+        '.vue': 'bi-file-earmark-code text-success',
+    };
+    return icons[ext] || 'bi-file-earmark';
+}
+
+// 点击文件
+$(document).on('click', '.tree-item', function(e) {
+    // 忽略按钮点击
+    if ($(e.target).closest('.tree-actions').length > 0) {
+        return;
+    }
+    
+    var path = $(this).data('path');
+    var type = $(this).data('type');
+    
+    // 文件夹展开/折叠
+    if (type === 'folder') {
+        var $node = $(this).closest('.tree-node');
+        var $children = $node.find('> .tree-children');
+        var $icon = $(this).find('.expand-icon');
+        
+        if ($children.length === 0) return;
+        
+        // 如果已加载，直接切换展开/折叠
+        if ($node.attr('data-loaded') === 'true') {
+            $children.toggleClass('expanded');
+            $icon.toggleClass('bi-caret-right-fill bi-caret-down-fill');
+        } else {
+            // 未加载，先展开图标，再懒加载子目录
+            $icon.removeClass('bi-caret-right-fill').addClass('bi-caret-down-fill');
+            loadChildren(path, $node);
+        }
+        return;
+    }
+    
+    // 打开文件
+    openFile(path);
+});
+
+// 打开文件（支持多标签）
+function openFile(filePath) {
+    // 检查文件是否已打开
+    if (findFile(filePath)) {
+        switchToFile(filePath);
+        return;
+    }
+    
+    // 从服务器加载文件
+    $.ajax({
+        url: '/file-editor/api/file/read',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ file_path: filePath }),
+        success: function(res) {
+            if (res.code === 200) {
+                var fileName = res.data.path.split(/[\\/]/).pop();
+                var mode = getFileMode(fileName);
+                
+                // 添加到已打开文件列表
+                // 为每个文件创建独立的 CodeMirror Doc 对象（隔离内容、历史、光标）
+                var doc = new CodeMirror.Doc(res.data.content, mode);
+                openFiles.push({
+                    path: res.data.path,
+                    name: fileName,
+                    content: res.data.content,
+                    mode: mode,
+                    isModified: false,
+                    doc: doc
+                });
+                
+                switchToFile(res.data.path);
+            } else {
+                showToast(res.msg, 'danger');
+            }
+        },
+        error: function(xhr) {
+            showToast((xhr.responseJSON || {}).msg || '打开文件失败', 'danger');
+        }
+    });
+}
+
+// 同步当前编辑器内容到文件记录
+function syncCurrentFile() {
+    if (!activeFilePath) return;
+    var fileEntry = findFile(activeFilePath);
+    if (fileEntry) {
+        var newContent = editor.getValue();
+        if (fileEntry.content !== newContent) {
+            fileEntry.isModified = true;
+        }
+        fileEntry.content = newContent;
+        fileEntry.scrollInfo = editor.getScrollInfo();
+        fileEntry.cursor = editor.getCursor();
+    }
+}
+
+// 更新编辑器周围的UI状态（按钮、树节点高亮、欢迎页等）
+function updateEditorChrome(fileEntry) {
+    $('#welcomeScreen').addClass('d-none');
+    $('#codeEditor').removeClass('d-none');
+    $('#saveFileBtn, #closeFileBtn').prop('disabled', false);
+    var ext = fileEntry.name.split('.').pop().toLowerCase();
+    $('#runScriptBtn').prop('disabled', ext !== 'py');
+    $('.tree-item').removeClass('active');
+    $('.tree-item[data-path="' + escapeHtml(fileEntry.path) + '"]').addClass('active');
+    renderFileTabs();
+}
+
+// 切换到指定文件标签
+function switchToFile(filePath) {
+    syncCurrentFile();
+    
+    var fileEntry = findFile(filePath);
+    if (!fileEntry) return;
+    
+    activeFilePath = filePath;
+    currentFile = { path: fileEntry.path, name: fileEntry.name };
+    
+    // swapDoc 原子交换文档对象（内容、光标、历史全在 Doc 内）
+    editor.swapDoc(fileEntry.doc);
+    
+    // 恢复滚动位置（swapDoc 不管理滚动，需手动处理）
+    if (fileEntry.scrollInfo) {
+        var s = fileEntry.scrollInfo;
+        setTimeout(function() { editor.scrollTo(s.left, s.top); }, 0);
+    }
+    if (fileEntry.cursor) {
+        editor.setCursor(fileEntry.cursor);
+    }
+    
+    updateEditorChrome(fileEntry);
+}
+
+// 渲染文件标签页（事件委托在初始化时绑定，此处只更新HTML）
+function renderFileTabs() {
+    var html = '';
+    openFiles.forEach(function(file) {
+        var isActive = file.path === activeFilePath;
+        html += '<div class="file-tab' + (isActive ? ' active' : '') + '" data-path="' + escapeHtml(file.path) + '" title="' + escapeHtml(file.path) + '">';
+        if (file.isModified) html += '<span class="tab-dot"></span>';
+        html += '<span class="tab-name">' + escapeHtml(file.name) + '</span>';
+        html += '<span class="tab-close" title="关闭"><i class="bi bi-x"></i></span></div>';
+    });
+    $('#fileTabs').html(html);
+}
+
+// 关闭指定文件标签
+function closeFileTab(filePath) {
+    var index = openFiles.findIndex(function(f) { return f.path === filePath; });
+    if (index === -1) return;
+    
+    // 检查是否有未保存的修改
+    var fileEntry = openFiles[index];
+    if (fileEntry.isModified) {
+        if (!confirm('文件 "' + fileEntry.name + '" 有未保存的修改，确定关闭吗？')) {
+            return;
+        }
+    }
+    
+    // 从列表中移除
+    openFiles.splice(index, 1);
+    
+    // 如果关闭的是当前活动文件，切换到其他文件
+    if (filePath === activeFilePath) {
+        activeFilePath = null;
+        if (openFiles.length > 0) {
+            // 切换到相邻的标签
+            var newIndex = Math.min(index, openFiles.length - 1);
+            switchToFile(openFiles[newIndex].path);
+        } else {
+            // 没有打开的文件了，显示欢迎页
+            currentFile = null;
+            editor.setValue('');
+            editor.clearHistory();
+            $('#welcomeScreen').removeClass('d-none');
+            $('#codeEditor').addClass('d-none');
+            $('#saveFileBtn').prop('disabled', true);
+            $('#closeFileBtn').prop('disabled', true);
+            $('#runScriptBtn').prop('disabled', true);
+            $('.tree-item').removeClass('active');
+            renderFileTabs();
+        }
+    } else {
+        // 关闭的不是当前文件，只需重新渲染标签
+        renderFileTabs();
+    }
+}
+
+// 获取文件编辑器模式
+function getFileMode(filename) {
+    var ext = filename.split('.').pop().toLowerCase();
+    var modeMap = {
+        'py': 'python', 'js': 'javascript', 'jsx': 'javascript',
+        'ts': 'javascript', 'tsx': 'javascript', 'html': 'htmlmixed',
+        'htm': 'htmlmixed', 'css': 'css', 'scss': 'css', 'less': 'css',
+        'json': 'text/plain', 'md': 'markdown', 'markdown': 'markdown',
+        'xml': 'xml', 'yml': 'text/plain', 'yaml': 'text/plain',
+        'sql': 'text/plain', 'php': 'text/plain', 'java': 'text/plain',
+        'go': 'text/plain', 'rb': 'text/plain', 'sh': 'text/plain',
+        'vue': 'htmlmixed', 'txt': 'text/plain', 'log': 'text/plain',
+        'ini': 'text/plain', 'conf': 'text/plain', 'cfg': 'text/plain',
+        'env': 'text/plain', 'bat': 'text/plain', 'cmd': 'text/plain'
+    };
+    return modeMap[ext] || 'text/plain';
+}
+
+
+// 保存文件内容到服务器
+function saveFileContent(filePath, content, callback) {
+    $.ajax({
+        url: '/file-editor/api/file/save',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ file_path: filePath, content: content, session_token: _sessionToken }),
+        success: function(res) {
+            if (res.code === 200) {
+                if (callback) callback(true, res.data);
+            } else {
+                showToast(res.msg, 'danger');
+                if (callback) callback(false);
+            }
+        },
+        error: function(xhr) {
+            showToast((xhr.responseJSON || {}).msg || '保存失败', 'danger');
+            if (callback) callback(false);
+        }
+    });
+}
+
+// 保存文件
+$('#saveFileBtn').click(function() {
+    if (!currentFile) return;
+    
+    var $btn = $(this);
+    $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span>保存中...');
+    
+    saveFileContent(currentFile.path, editor.getValue(), function(success, data) {
+        if (success) {
+            var fileEntry = findFile(currentFile.path);
+            if (fileEntry) {
+                fileEntry.isModified = false;
+                fileEntry.content = editor.getValue();
+                renderFileTabs();
+            }
+            
+            // 检查语法结果
+            if (data && data.syntax_check) {
+                var sc = data.syntax_check;
+                if (sc.valid) {
+                    showToast('文件保存成功，语法检查通过', 'success');
+                } else {
+                    var msg = '语法错误';
+                    if (sc.line) msg += ' (第 ' + sc.line + ' 行)';
+                    if (sc.message) msg += ': ' + sc.message;
+                    showToast(msg, 'warning');
+                    // 跳转到错误行
+                    if (sc.line) {
+                        editor.setCursor({line: sc.line - 1, ch: 0});
+                        editor.focus();
+                    }
+                }
+            } else {
+                showToast('文件保存成功', 'success');
+            }
+        }
+        $btn.prop('disabled', false).html('<i class="bi bi-save me-1"></i>保存');
+    });
+});
+
+// 关闭文件（关闭当前活动标签）
+$('#closeFileBtn').click(function() {
+    if (!activeFilePath) return;
+    closeFileTab(activeFilePath);
+});
+
+// 刷新文件树（保留展开状态）
+$('#refreshTreeBtn').click(function() {
+    // 保存当前已加载并展开的文件夹路径
+    var expandedPaths = [];
+    $('.tree-node[data-loaded="true"]').each(function() {
+        var $children = $(this).find('> .tree-children.expanded');
+        if ($children.length > 0) {
+            expandedPaths.push($(this).data('path'));
+        }
+    });
+    
+    loadFileTree(function() {
+        // 恢复展开的文件夹（按层级顺序，先展开外层再展开内层）
+        expandedPaths.sort(function(a, b) { return a.length - b.length; });
+        var restoreIndex = 0;
+        
+        function restoreNext() {
+            if (restoreIndex >= expandedPaths.length) return;
+            var path = expandedPaths[restoreIndex++];
+            var $node = $('.tree-node[data-path="' + escapeHtml(path) + '"]');
+            if ($node.length > 0 && $node.attr('data-loaded') !== 'true') {
+                var $icon = $node.find('> .tree-item .expand-icon');
+                if ($icon.length > 0) {
+                    $icon.removeClass('bi-caret-right-fill').addClass('bi-caret-down-fill');
+                }
+                loadChildren(path, $node, restoreNext);
+            } else {
+                restoreNext();
+            }
+        }
+        restoreNext();
+    });
+    showToast('文件树已刷新', 'info');
+});
+
+// 查找替换功能
+$('#searchReplaceBtn').click(function() {
+    if (!currentFile) {
+        showToast('请先打开一个文件', 'warning');
+        return;
+    }
+    toggleSearchPanel();
+});
+
+// 切换查找面板
+var searchPanelVisible = false;
+var currentSearchMatches = [];
+var currentMatchIndex = -1;
+
+function toggleSearchPanel(showReplace) {
+    var $panel = $('#searchReplacePanel');
+    
+    if (searchPanelVisible) {
+        // 关闭面板
+        $panel.slideUp(200);
+        searchPanelVisible = false;
+        clearSearchHighlights();
+    } else {
+        // 显示面板
+        $panel.slideDown(200);
+        searchPanelVisible = true;
+        
+        // 如果有选中文本，自动填充到查找框
+        var selectedText = editor.getSelection();
+        if (selectedText) {
+            $('#searchInput').val(selectedText);
+            performSearch();
+        }
+        
+        // 聚焦查找框
+        setTimeout(function() {
+            $('#searchInput').focus();
+        }, 200);
+    }
+}
+
+// 执行搜索
+function performSearch() {
+    var searchText = $('#searchInput').val();
+    
+    // 清除旧的高亮
+    clearSearchHighlights();
+    
+    if (!searchText) {
+        $('#searchCount').text('0/0');
+        currentSearchMatches = [];
+        currentMatchIndex = -1;
+        return;
+    }
+    
+    // 获取搜索选项
+    var caseSensitive = $('#caseSensitive').is(':checked');
+    var wholeWord = $('#wholeWord').is(':checked');
+    var useRegex = $('#useRegex').is(':checked');
+    
+    try {
+        // 使用 CodeMirror 的搜索光标
+        var cursor = editor.getSearchCursor(searchText, null, {
+            caseFold: !caseSensitive
+        });
+        
+        currentSearchMatches = [];
+        var matchCount = 0;
+        
+        // 查找所有匹配项
+        while (cursor.findNext()) {
+            matchCount++;
+            currentSearchMatches.push({
+                from: cursor.from(),
+                to: cursor.to()
+            });
+        }
+        
+        $('#searchCount').text(currentSearchMatches.length > 0 ? '1/' + matchCount : '0/0');
+        
+        if (currentSearchMatches.length > 0) {
+            currentMatchIndex = 0;
+            highlightAllMatches();
+            goToMatch(0);
+        }
+    } catch (e) {
+        if (useRegex) {
+            showToast('正则表达式格式错误', 'warning');
+        }
+    }
+}
+
+// 高亮所有匹配项
+function highlightAllMatches() {
+    // 清除旧标记
+    editor.getAllMarks().forEach(function(mark) {
+        if (mark.__isSearchHighlight) {
+            mark.clear();
+        }
+    });
+    
+    // 添加新标记
+    currentSearchMatches.forEach(function(match, index) {
+        var className = index === currentMatchIndex ? 'search-highlight-current' : 'search-highlight';
+        
+        editor.markText(match.from, match.to, {
+            className: className,
+            __isSearchHighlight: true
+        });
+    });
+}
+
+// 跳转到指定匹配项
+function goToMatch(index) {
+    if (index < 0 || index >= currentSearchMatches.length) return;
+    
+    currentMatchIndex = index;
+    
+    // 更新高亮
+    highlightAllMatches();
+    
+    // 跳转到匹配位置
+    var match = currentSearchMatches[index];
+    editor.setSelection(match.from, match.to);
+    editor.scrollIntoView({from: match.from, to: match.to}, 50);
+    
+    $('#searchCount').text((index + 1) + '/' + currentSearchMatches.length);
+}
+
+// 清除搜索高亮
+function clearSearchHighlights() {
+    editor.getAllMarks().forEach(function(mark) {
+        if (mark.__isSearchHighlight) {
+            mark.clear();
+        }
+    });
+    currentSearchMatches = [];
+    currentMatchIndex = -1;
+    $('#searchCount').text('0/0');
+}
+
+// 上一个匹配
+$('#prevMatchBtn').click(function() {
+    if (currentSearchMatches.length === 0) return;
+    var newIndex = currentMatchIndex - 1;
+    if (newIndex < 0) newIndex = currentSearchMatches.length - 1;
+    goToMatch(newIndex);
+});
+
+// 下一个匹配
+$('#nextMatchBtn').click(function() {
+    if (currentSearchMatches.length === 0) return;
+    var newIndex = currentMatchIndex + 1;
+    if (newIndex >= currentSearchMatches.length) newIndex = 0;
+    goToMatch(newIndex);
+});
+
+// 关闭搜索
+$('#closeSearchBtn').click(function() {
+    toggleSearchPanel();
+});
+
+// 搜索输入框回车
+$('#searchInput').on('input', function() {
+    performSearch();
+});
+
+$('#searchInput').on('keydown', function(e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) {
+            $('#prevMatchBtn').click();
+        } else {
+            $('#nextMatchBtn').click();
+        }
+    }
+    if (e.key === 'Escape') {
+        toggleSearchPanel();
+    }
+});
+
+// 搜索选项变化时重新搜索
+$('#caseSensitive, #wholeWord, #useRegex').change(function() {
+    performSearch();
+});
+
+// 替换当前匹配项
+$('#replaceCurrentBtn').click(function() {
+    if (currentMatchIndex < 0 || currentMatchIndex >= currentSearchMatches.length) return;
+    
+    var replaceText = $('#replaceInput').val();
+    var match = currentSearchMatches[currentMatchIndex];
+    
+    // 替换文本
+    editor.replaceRange(replaceText, match.from, match.to);
+    
+    // 重新搜索
+    setTimeout(function() {
+        performSearch();
+    }, 100);
+});
+
+// 替换所有匹配项
+$('#replaceAllBtn').click(function() {
+    if (currentSearchMatches.length === 0) return;
+    
+    var replaceText = $('#replaceInput').val();
+    
+    // 从后往前替换，避免位置偏移
+    for (var i = currentSearchMatches.length - 1; i >= 0; i--) {
+        var match = currentSearchMatches[i];
+        editor.replaceRange(replaceText, match.from, match.to);
+    }
+    
+    showToast('已替换 ' + currentSearchMatches.length + ' 处', 'success');
+    
+    // 重新搜索
+    setTimeout(function() {
+        performSearch();
+    }, 100);
+});
+
+// 新建文件
+$('#newFileBtn').click(function() {
+    createNewItem('file');
+});
+
+// 新建文件夹
+$('#newFolderBtn').click(function() {
+    createNewItem('folder');
+});
+
+// 创建新项（使用美化的弹框）
+function createNewItem(type, parentPath) {
+    var basePath = parentPath || currentProjectPath;
+    
+    document.getElementById('createFileParentPath').value = basePath;
+    document.getElementById('createFileType').value = type;
+    document.getElementById('createFileName').value = '';
+    
+    if (type === 'folder') {
+        document.getElementById('createFileModalTitle').innerHTML = '<i class="bi bi-folder-plus me-2"></i>新建文件夹';
+        document.getElementById('createFileName').placeholder = '例如：my-folder';
+    } else {
+        document.getElementById('createFileModalTitle').innerHTML = '<i class="bi bi-file-earmark-plus me-2"></i>新建文件';
+        document.getElementById('createFileName').placeholder = '例如：test2.py';
+    }
+    
+    var el = document.getElementById('createFileModal');
+    var modal = bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el);
+    modal.show();
+    
+    // 自动聚焦
+    setTimeout(function() {
+        document.getElementById('createFileName').focus();
+    }, 300);
+}
+
+// 确认创建文件
+function confirmCreateFile() {
+    var parentPath = document.getElementById('createFileParentPath').value;
+    var type = document.getElementById('createFileType').value;
+    var name = document.getElementById('createFileName').value.trim();
+    
+    if (!name) {
+        showToast('请输入名称', 'warning');
+        document.getElementById('createFileName').focus();
+        return;
+    }
+    
+    // 智能判断类型：带扩展名（含"."）→ 文件，不带扩展名 → 文件夹
+    if (name.indexOf('.') === -1) {
+        type = 'folder';
+    } else {
+        type = 'file';
+    }
+    
+    // 统一使用反斜杠（Windows路径）
+    parentPath = parentPath.replace(/\//g, '\\');
+    var fullPath = parentPath + '\\' + name;
+    
+    $.ajax({
+        url: '/file-editor/api/file/create',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            path: fullPath,
+            type: type,
+            session_token: _sessionToken
+        }),
+        success: function(res) {
+            if (res.code === 200) {
+                showToast((type === 'folder' ? '文件夹' : '文件') + '创建成功', 'success');
+                bootstrap.Modal.getInstance(document.getElementById('createFileModal')).hide();
+                
+                // 使用增量更新，不刷新整个树
+                updateFileTreeItem('add', fullPath, type, name);
+            } else {
+                showToast(res.msg, 'danger');
+            }
+        },
+        error: function(xhr) {
+            showToast((xhr.responseJSON || {}).msg || '创建失败', 'danger');
+        }
+    });
+}
+
+// 重命名（使用美化的弹框）
+function renameItem(oldPath, type) {
+    var oldName = oldPath.split(/[\\/]/).pop();
+    
+    document.getElementById('renameOldPath').value = oldPath;
+    document.getElementById('renameNewName').value = oldName;
+    
+    var el = document.getElementById('renameModal');
+    var modal = bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el);
+    modal.show();
+    
+    // 自动聚焦并选中文本
+    setTimeout(function() {
+        var input = document.getElementById('renameNewName');
+        input.focus();
+        input.select();
+    }, 300);
+}
+
+// 确认重命名
+function confirmRename() {
+    var oldPath = document.getElementById('renameOldPath').value;
+    var newName = document.getElementById('renameNewName').value.trim();
+    
+    if (!newName) {
+        showToast('请输入新名称', 'warning');
+        document.getElementById('renameNewName').focus();
+        return;
+    }
+    
+    var oldName = oldPath.split(/[\\/]/).pop();
+    if (newName === oldName) {
+        showToast('名称未变化', 'info');
+        bootstrap.Modal.getInstance(document.getElementById('renameModal')).hide();
+        return;
+    }
+    
+    // 提取父路径（兼容正反斜杠）
+    var sepIndex = Math.max(oldPath.lastIndexOf('\\'), oldPath.lastIndexOf('/'));
+    var parentPath = sepIndex > -1 ? oldPath.substring(0, sepIndex) : oldPath;
+    var newPath = parentPath + '\\' + newName;
+    
+    $.ajax({
+        url: '/file-editor/api/file/rename',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            old_path: oldPath,
+            new_path: newPath,
+            session_token: _sessionToken
+        }),
+        success: function(res) {
+            if (res.code === 200) {
+                showToast('重命名成功', 'success');
+                bootstrap.Modal.getInstance(document.getElementById('renameModal')).hide();
+                
+                // 更新已打开文件列表中受影响的路径
+                var oldPrefix = oldPath.replace(/\//g, '\\');
+                var newPrefix = newPath.replace(/\//g, '\\');
+                openFiles.forEach(function(f) {
+                    var fPath = f.path.replace(/\//g, '\\');
+                    if (fPath === oldPrefix || fPath.indexOf(oldPrefix + '\\') === 0) {
+                        f.path = newPrefix + fPath.substring(oldPrefix.length);
+                        // 从新路径中提取文件名
+                        var parts = f.path.split(/[\\/]/);
+                        f.name = parts[parts.length - 1];
+                    }
+                });
+                // 更新当前文件信息
+                if (currentFile) {
+                    var curPath = currentFile.path.replace(/\//g, '\\');
+                    if (curPath === oldPrefix || curPath.indexOf(oldPrefix + '\\') === 0) {
+                        currentFile.path = newPrefix + curPath.substring(oldPrefix.length);
+                        var curParts = currentFile.path.split(/[\\/]/);
+                        currentFile.name = curParts[curParts.length - 1];
+                        $('#currentFileName').text(currentFile.name);
+                        $('#currentFilePath').text(currentFile.path);
+                    }
+                }
+                // 更新标签页 DOM 上的路径
+                $('#fileTabs .file-tab').each(function() {
+                    var tabPath = ($(this).data('path') + '').replace(/\//g, '\\');
+                    if (tabPath === oldPrefix || tabPath.indexOf(oldPrefix + '\\') === 0) {
+                        var newTabPath = newPrefix + tabPath.substring(oldPrefix.length);
+                        $(this).data('path', newTabPath);
+                        $(this).attr('data-path', newTabPath);
+                        var tabParts = newTabPath.split(/[\\/]/);
+                        $(this).find('.tab-name').text(tabParts[tabParts.length - 1]);
+                    }
+                });
+                
+                // 刷新文件树
+                updateFileTreeItem('rename', oldPath, null, newName);
+            } else {
+                showToast(res.msg, 'danger');
+            }
+        },
+        error: function(xhr) {
+            showToast((xhr.responseJSON || {}).msg || '重命名失败', 'danger');
+        }
+    });
+}
+
+// 删除（使用美化的弹框）
+function deleteItem(path, type) {
+    var name = path.split(/[\\/]/).pop();
+    
+    document.getElementById('deleteItemName').textContent = name + (type === 'folder' ? ' (文件夹)' : '');
+    
+    // 保存路径和类型供确认删除时使用
+    document.getElementById('deleteModal').dataset.path = path;
+    document.getElementById('deleteModal').dataset.type = type;
+    
+    var el = document.getElementById('deleteModal');
+    var modal = bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el);
+    modal.show();
+}
+
+// 确认删除
+function confirmDelete() {
+    var modal = document.getElementById('deleteModal');
+    var path = modal.dataset.path;
+    var type = modal.dataset.type;
+    
+    $.ajax({
+        url: '/file-editor/api/file/delete',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            path: path,
+            type: type,
+            session_token: _sessionToken
+        }),
+        success: function(res) {
+            if (res.code === 200) {
+                showToast('删除成功', 'success');
+                bootstrap.Modal.getInstance(document.getElementById('deleteModal')).hide();
+                
+                // 使用增量更新
+                updateFileTreeItem('delete', path, type);
+            } else {
+                showToast(res.msg, 'danger');
+            }
+        },
+        error: function(xhr) {
+            showToast((xhr.responseJSON || {}).msg || '删除失败', 'danger');
+        }
+    });
+}
+
+// 右键菜单
+$(document).on('contextmenu', '.tree-item', function(e) {
+    e.preventDefault();
+    contextMenuTarget = {
+        path: $(this).data('path'),
+        type: $(this).data('type')
+    };
+    
+    var $menu = $('#contextMenu');
+    $menu.css({
+        display: 'block',
+        left: e.pageX + 'px',
+        top: e.pageY + 'px'
+    });
+});
+
+// 隐藏右键菜单
+$(document).click(function() {
+    $('#contextMenu').hide();
+});
+
+// 右键菜单操作
+$('#ctxRename').click(function() {
+    if (!contextMenuTarget) return;
+    renameItem(contextMenuTarget.path, contextMenuTarget.type);
+});
+
+$('#ctxNewFile').click(function() {
+    if (!contextMenuTarget || contextMenuTarget.type !== 'folder') return;
+    createNewItem('file', contextMenuTarget.path);
+});
+
+$('#ctxNewFolder').click(function() {
+    if (!contextMenuTarget || contextMenuTarget.type !== 'folder') return;
+    createNewItem('folder', contextMenuTarget.path);
+});
+
+$('#ctxDelete').click(function() {
+    if (!contextMenuTarget) return;
+    deleteItem(contextMenuTarget.path, contextMenuTarget.type);
+});
+
+// 备份当前项目按钮
+$('#backupProjectBtn').click(function() {
+    if (!currentProjectPath) {
+        showToast('请先打开一个项目', 'warning');
+        return;
+    }
+    var projectName = $('#projectName').text() || 'project';
+    openBackupDialog(currentProjectPath, 'project', projectName);
+});
+
+// 右键菜单 - 备份此项
+$('#ctxBackupItem').click(function() {
+    if (!contextMenuTarget) return;
+    var path = contextMenuTarget.path;
+    var type = contextMenuTarget.type;
+    var name = path.split(/[\\/]/).pop() || 'item';
+    openBackupDialog(path, type, name);
+});
+
+// 工具栏按钮（使用事件委托）
+$(document).on('click', '.btn-new-file-in', function(e) {
+    e.stopPropagation();
+    var path = $(this).closest('.tree-node').data('path');
+    createNewItem('file', path);
+});
+
+$(document).on('click', '.btn-rename', function(e) {
+    e.stopPropagation();
+    var $node = $(this).closest('.tree-node');
+    renameItem($node.data('path'), $node.data('type'));
+});
+
+$(document).on('click', '.btn-delete', function(e) {
+    e.stopPropagation();
+    var $node = $(this).closest('.tree-node');
+    deleteItem($node.data('path'), $node.data('type'));
+});
+
+// ============================================================
+// Python运行地址管理功能（数据库存储，与任务管理共享）
+// ============================================================
+
+// Python路径管理（使用 app.js 共享模块）
+var pyPathMgr = AppPythonPathManager({
+    selectId: 'pythonPathSelect',
+    tableBodyId: 'inlinePythonPathsBody',
+    addFormId: 'inlineAddPathForm',
+    newPathInputId: 'inlineNewPythonPath',
+    setDefaultCheckboxId: 'inlineSetDefault',
+    varName: 'pyPathMgr',
+    threeColumn: true   // 三列布局（匹配表头：Python路径 | 默认 | 操作）
+});
+
+$('#runScriptBtn').click(function() {
+    if (!currentFile) { showToast('请先打开一个文件', 'warning'); return; }
+    showQuickRunModal();
+});
+
+$('#executionsBtn').click(function() {
+    showExecutionsModal();
+});
+
+// 显示执行列表弹框
+function showExecutionsModal() {
+    var el = document.getElementById('executionsModal');
+    var modal = bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el);
+    modal.show();
+    loadExecutions();
+}
+
+// 加载执行列表
+var currentExecPage = 1;
+function loadExecutions(page) {
+    if (!page) page = 1;
+    currentExecPage = page;
+    var status = $('#executionsStatusFilter').val();
+    
+    $.ajax({
+        url: '/file-editor/api/executions',
+        method: 'GET',
+        data: {
+            page: page,
+            page_size: 20,
+            status: status
+        },
+        success: function(res) {
+            if (res.code !== 200) {
+                $('#executionsTableBody').html('<tr><td colspan="6" class="text-center text-muted py-4">加载失败</td></tr>');
+                return;
+            }
+            renderExecutionsTable(res.data);
+            renderExecutionsPagination(res.data);
+        },
+        error: function() {
+            $('#executionsTableBody').html('<tr><td colspan="6" class="text-center text-muted py-4">加载失败</td></tr>');
+        }
+    });
+}
+
+// 渲染执行列表表格
+function renderExecutionsTable(data) {
+    var list = data.list || [];
+    var html = '';
+    
+    if (list.length === 0) {
+        html = '<tr><td colspan="6" class="text-center text-muted py-4">暂无执行记录</td></tr>';
+    } else {
+        $.each(list, function(i, item) {
+            var statusBadge = getStatusBadge(item.status);
+            var scriptName = item.script_path.split(/[\\/]/).pop();
+            var startTime = item.start_time ? formatDateTime(item.start_time) : '-';
+            
+            html += '<tr>';
+            html += '<td>' + item.id + '</td>';
+            html += '<td><div title="' + escapeHtml(item.script_path) + '">' + escapeHtml(scriptName) + '</div></td>';
+            html += '<td>' + statusBadge + '</td>';
+            html += '<td>' + (item.return_code !== null ? item.return_code : '-') + '</td>';
+            html += '<td>' + startTime + '</td>';
+            html += '<td>';
+            html += '<button class="btn btn-sm btn-outline-primary me-1" onclick="showExecutionDetail(' + item.id + ')">查看</button>';
+            if (item.status === 'running') {
+                html += '<button class="btn btn-sm btn-danger" onclick="stopExecution(' + item.id + ')">停止</button>';
+            } else {
+                html += '<button class="btn btn-sm btn-outline-danger" onclick="deleteExecution(' + item.id + ')">删除</button>';
+            }
+            html += '</td>';
+            html += '</tr>';
+        });
+    }
+    
+    $('#executionsTableBody').html(html);
+}
+
+// 获取状态徽章
+function getStatusBadge(status) {
+    var badges = {
+        'running': '<span class="badge bg-warning">运行中</span>',
+        'success': '<span class="badge bg-success">成功</span>',
+        'failed': '<span class="badge bg-danger">失败</span>',
+        'stopped': '<span class="badge bg-secondary">已停止</span>',
+        'timeout': '<span class="badge bg-danger">超时</span>'
+    };
+    return badges[status] || '<span class="badge bg-gray">' + status + '</span>';
+}
+
+// 渲染分页
+function renderExecutionsPagination(data) {
+    var total = data.total || 0;
+    var page = data.page || 1;
+    var pageSize = data.page_size || 20;
+    var totalPages = Math.ceil(total / pageSize);
+    
+    if (totalPages <= 1) {
+        $('#executionsPagination').html('');
+        return;
+    }
+    
+    var html = '<nav><ul class="pagination pagination-sm">';
+    
+    if (page > 1) {
+        html += '<li class="page-item"><a class="page-link" href="#" onclick="loadExecutions(' + (page - 1) + ')">上一页</a></li>';
+    }
+    
+    var startPage = Math.max(1, page - 2);
+    var endPage = Math.min(totalPages, page + 2);
+    
+    for (var i = startPage; i <= endPage; i++) {
+        if (i === page) {
+            html += '<li class="page-item active"><span class="page-link">' + i + '</span></li>';
+        } else {
+            html += '<li class="page-item"><a class="page-link" href="#" onclick="loadExecutions(' + i + ')">' + i + '</a></li>';
+        }
+    }
+    
+    if (page < totalPages) {
+        html += '<li class="page-item"><a class="page-link" href="#" onclick="loadExecutions(' + (page + 1) + ')">下一页</a></li>';
+    }
+    
+    html += '</ul></nav>';
+    $('#executionsPagination').html(html);
+}
+
+// 显示执行详情
+var currentExecutionId = null;
+function showExecutionDetail(id) {
+    currentExecutionId = id;
+    $.ajax({
+        url: '/file-editor/api/executions/' + id,
+        method: 'GET',
+        success: function(res) {
+            if (res.code !== 200) {
+                showToast(res.msg || '获取详情失败', 'danger');
+                return;
+            }
+            var item = res.data;
+            $('#detailScriptPath').text(item.script_path);
+            $('#detailPythonPath').text(item.python_path || '-');
+            $('#detailStatus').html(getStatusBadge(item.status));
+            $('#detailReturnCode').text(item.return_code !== null ? item.return_code : '-');
+            $('#detailStartTime').text(item.start_time ? formatDateTime(item.start_time) : '-');
+            $('#detailEndTime').text(item.end_time ? formatDateTime(item.end_time) : '-');
+            $('#detailLogContent').text(item.log_content || '（无日志）');
+            
+            if (item.status === 'running') {
+                $('#stopExecutionBtn').show();
+            } else {
+                $('#stopExecutionBtn').hide();
+            }
+            
+            var el = document.getElementById('executionDetailModal');
+            var modal = bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el);
+            modal.show();
+            
+            // 如果正在运行，定时刷新
+            if (item.status === 'running') {
+                startDetailRefresh(id);
+            }
+        },
+        error: function() {
+            showToast('获取详情失败', 'danger');
+        }
+    });
+}
+
+var _detailRefreshTimer = null;
+
+$('#executionDetailModal').on('hidden.bs.modal', function() {
+    if (_detailRefreshTimer) {
+        clearInterval(_detailRefreshTimer);
+        _detailRefreshTimer = null;
+    }
+});
+
+function startDetailRefresh(id) {
+    if (_detailRefreshTimer) clearInterval(_detailRefreshTimer);
+    _detailRefreshTimer = setInterval(function() {
+        $.ajax({
+            url: '/file-editor/api/file/run/result?execution_id=' + id,
+            method: 'GET',
+            success: function(res) {
+                if (res.code === 200 && res.data.status === 'done') {
+                    clearInterval(_detailRefreshTimer);
+                    _detailRefreshTimer = null;
+                    showExecutionDetail(id);  // 刷新详情
+                } else if (res.code === 200 && res.data.status === 'running' && res.data.output) {
+                    $('#detailLogContent').text(res.data.output);
+                }
+            }
+        });
+    }, 2000);
+}
+
+// 停止执行
+function stopExecution(id) {
+    if (!confirm('确定要停止此执行吗？')) return;
+    
+    $.ajax({
+        url: '/file-editor/api/file/stop',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ execution_id: id }),
+        success: function(res) {
+            if (res.code === 200) {
+                showToast('已发送停止命令', 'success');
+                loadExecutions(currentExecPage);
+            } else {
+                showToast(res.msg || '停止失败', 'danger');
+            }
+        },
+        error: function() {
+            showToast('停止失败', 'danger');
+        }
+    });
+}
+
+// 从详情弹窗停止执行
+function stopExecutionFromDetail() {
+    if (currentExecutionId) {
+        stopExecution(currentExecutionId);
+        $('#stopExecutionBtn').prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span>停止中...');
+    }
+}
+
+// 删除执行记录
+function deleteExecution(id) {
+    if (!id) id = currentExecutionId;
+    if (!confirm('确定要删除此执行记录吗？')) return;
+    
+    $.ajax({
+        url: '/file-editor/api/executions/' + id,
+        method: 'DELETE',
+        success: function(res) {
+            if (res.code === 200) {
+                showToast('删除成功', 'success');
+                loadExecutions(currentExecPage);
+                // 如果在详情弹窗中，关闭弹窗
+                var el = document.getElementById('executionDetailModal');
+                var modal = bootstrap.Modal.getInstance(el);
+                if (modal) modal.hide();
+            } else {
+                showToast(res.msg || '删除失败', 'danger');
+            }
+        },
+        error: function() {
+            showToast('删除失败', 'danger');
+        }
+    });
+}
+
+// 导出执行记录
+function exportExecutions() {
+    var status = $('#executionsStatusFilter').val();
+    var url = '/file-editor/api/executions/export';
+    if (status) {
+        url += '?status=' + encodeURIComponent(status);
+    }
+    window.location.href = url;
+}
+
+// 格式化日期时间
+function formatDateTime(isoString) {
+    if (!isoString) return '-';
+    var date = new Date(isoString);
+    return date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+    });
+}
+
+// 快速运行相关函数
+function showQuickRunModal() {
+    $('#quickPythonPathsPanel').hide();
+    $('#quickAddPathForm').hide();
+    quickPyPathMgr.init(function() {
+        var defaultPath = '';
+        quickPyPathMgr.paths.forEach(function(p) { if (p.is_default) defaultPath = p.path; });
+        quickPyPathMgr.renderSelect(defaultPath);
+    });
+    var el = document.getElementById('quickRunModal');
+    var modal = bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el);
+    modal.show();
+}
+
+function toggleQuickPythonPathsPanel() {
+    var $panel = $('#quickPythonPathsPanel');
+    if ($panel.is(':visible')) {
+        $panel.slideUp(200);
+    } else {
+        quickPyPathMgr.init(function() { quickPyPathMgr.renderTable(); });
+        $panel.slideDown(200);
+    }
+}
+
+function showQuickAddPathForm() { quickPyPathMgr.showAddForm(); }
+function hideQuickAddPathForm() { quickPyPathMgr.hideAddForm(); }
+
+function selectQuickPythonPath() {
+    fileBrowser.setCallback(function(path) {
+        document.getElementById('quickNewPythonPath').value = path;
+        showToast('已选择: ' + path, 'success');
+    });
+    showFileBrowser();
+}
+
+function addQuickPythonPath() { 
+    quickPyPathMgr.add();
+}
+
+// 快速执行脚本
+function quickExecuteScript() {
+    if (!currentFile) {
+        showToast('请先打开一个文件', 'warning');
+        return;
+    }
+    
+    var pythonPath = document.getElementById('quickPythonPathSelect').value;
+    var timeoutValue = document.getElementById('quickTimeoutSelect').value;
+    var timeout = timeoutValue === 'default' ? null : parseInt(timeoutValue, 10);
+    var $btn = $('#quickExecuteBtn');
+    
+    $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span>执行中...');
+    
+    var currentContent = editor.getValue();
+    saveFileContent(currentFile.path, currentContent, function(saved) {
+        if (!saved) {
+            $btn.prop('disabled', false).html('<i class="bi bi-play-fill me-1"></i>开始执行');
+            return;
+        }
+        var requestData = {
+            file_path: currentFile.path,
+            python_path: pythonPath,
+            project_path: currentProjectPath
+        };
+        if (timeout !== null) {
+            requestData.timeout = timeout;
+        }
+        $.ajax({
+            url: '/file-editor/api/file/run',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(requestData),
+            success: function(res) {
+                if (res.code === 200) {
+                    var execId = res.data.execution_id;
+                    var scriptName = currentFile.name;
+                    showToast(scriptName + ' 已启动执行', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('quickRunModal')).hide();
+                    startExecutionNotification(execId, scriptName);
+                } else {
+                    showToast(res.msg, 'danger');
+                }
+                $btn.prop('disabled', false).html('<i class="bi bi-play-fill me-1"></i>开始执行');
+            },
+            error: function(xhr) {
+                var msg = (xhr.responseJSON || {}).msg || '启动失败';
+                showToast(msg, 'danger');
+                $btn.prop('disabled', false).html('<i class="bi bi-play-fill me-1"></i>开始执行');
+            }
+        });
+    });
+}
+
+// 执行完成通知轮询
+var _executionNotifyTimers = {};
+var _executionNotifyCounts = {};
+function startExecutionNotification(executionId, scriptName) {
+    if (_executionNotifyTimers[executionId]) return;
+    _executionNotifyCounts[executionId] = 0;
+    _executionNotifyTimers[executionId] = setInterval(function() {
+        _executionNotifyCounts[executionId]++;
+        if (_executionNotifyCounts[executionId] > 120) {
+            clearInterval(_executionNotifyTimers[executionId]);
+            delete _executionNotifyTimers[executionId];
+            delete _executionNotifyCounts[executionId];
+            return;
+        }
+        $.ajax({
+            url: '/file-editor/api/file/run/result?execution_id=' + executionId,
+            method: 'GET',
+            success: function(res) {
+                if (res.code !== 200) return;
+                var data = res.data;
+                if (data.status === 'done') {
+                    clearInterval(_executionNotifyTimers[executionId]);
+                    delete _executionNotifyTimers[executionId];
+                    delete _executionNotifyCounts[executionId];
+                    if (data.success) {
+                        showToast(scriptName + ' 执行成功', 'success');
+                    } else if (data.stopped) {
+                        showToast(scriptName + ' 已被停止', 'warning');
+                    } else if (data.timeout) {
+                        showToast(scriptName + ' 执行超时', 'danger');
+                    } else {
+                        showToast(scriptName + ' 执行失败（退出码: ' + data.returncode + '）', 'danger');
+                    }
+                }
+            },
+            error: function() {
+                clearInterval(_executionNotifyTimers[executionId]);
+                delete _executionNotifyTimers[executionId];
+                delete _executionNotifyCounts[executionId];
+            }
+        });
+    }, 3000);
+}
+
+// 快速运行的Python路径管理器（使用共享模块）
+var quickPyPathMgr = AppPythonPathManager({
+    selectId: 'quickPythonPathSelect',
+    tableBodyId: 'quickPythonPathsBody',
+    addFormId: 'quickAddPathForm',
+    newPathInputId: 'quickNewPythonPath',
+    varName: 'quickPyPathMgr',
+    threeColumn: true
+});
+
+function togglePythonPathsPanel() {
+    var $panel = $('#pythonPathsPanel');
+    var $btn = $('#togglePathsBtn');
+    if ($panel.is(':visible')) {
+        $panel.slideUp(200);
+        $btn.html('<i class="bi bi-gear"></i> 管理');
+    } else {
+        pyPathMgr.init(function() { pyPathMgr.renderTable(); });
+        $panel.slideDown(200);
+        $btn.html('<i class="bi bi-gear-fill"></i> 收起');
+    }
+}
+
+function showInlineAddPathForm() { pyPathMgr.showAddForm(); }
+function hideInlineAddPathForm() { pyPathMgr.hideAddForm(); }
+
+function selectPythonPathInline() {
+    fileBrowser.setCallback(function(path) {
+        document.getElementById('inlineNewPythonPath').value = path;
+        showToast('已选择: ' + path, 'success');
+    });
+    showFileBrowser();
+}
+
+function addPythonPathInline() { pyPathMgr.add(); }
+
+// renderInlinePythonPaths / refreshPythonSelect / setDefaultPythonPath / deletePythonPath
+// 已全部由 pyPathMgr.renderTable() / pyPathMgr.renderSelect() / pyPathMgr.setDefault() / pyPathMgr.remove() 替代
+
+</script>
+{% endblock %}

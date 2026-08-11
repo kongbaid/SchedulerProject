@@ -1,0 +1,1716 @@
+{% extends "base.html" %}
+{% block title %}任务列表 - 脚本任务管理系统{% endblock %}
+
+{% block content %}
+<!-- 自定义样式 -->
+<style>
+.path-cell {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.path-text {
+    display: inline-block;
+    max-width: 250px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.copy-path-btn {
+    flex-shrink: 0;
+    opacity: 0.5;
+    transition: opacity 0.2s;
+}
+.copy-path-btn:hover {
+    opacity: 1;
+}
+.tag-badge {
+    font-size: 0.7em;
+    cursor: default;
+}
+.dep-arrow {
+    color: #6c757d;
+    font-size: 1.2em;
+}
+.dep-node {
+    padding: 4px 10px;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    background: #fff;
+    display: inline-block;
+    margin: 2px;
+}
+.dep-node.active { border-color: #198754; }
+.dep-node.inactive { border-color: #dc3545; opacity: 0.6; }
+</style>
+
+<!-- 操作栏 -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="bi bi-list-task me-2"></i>定时任务管理</h4>
+    <div class="d-flex align-items-center gap-2">
+        <!-- 标签筛选 -->
+        <div class="dropdown">
+            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown" id="tagFilterBtn">
+                <i class="bi bi-tags me-1"></i>标签筛选
+            </button>
+            <ul class="dropdown-menu" id="tagFilterMenu">
+                <li><a class="dropdown-item" href="#" data-tag-id="0">全部任务</a></li>
+                <li><hr class="dropdown-divider"></li>
+            </ul>
+        </div>
+        <!-- 批量操作 -->
+        <div class="dropdown" id="batchOps" style="display:none;">
+            <button class="btn btn-outline-warning btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+                <i class="bi bi-lightning me-1"></i>批量操作
+            </button>
+            <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="#" id="batchEnableBtn"><i class="bi bi-play-circle text-success me-1"></i>批量启用</a></li>
+                <li><a class="dropdown-item" href="#" id="batchDisableBtn"><i class="bi bi-stop-circle text-danger me-1"></i>批量停用</a></li>
+            </ul>
+        </div>
+        <div class="input-group d-inline-flex" style="width:250px;">
+            <input type="text" class="form-control form-control-sm" id="searchInput"
+                   placeholder="搜索任务名称...">
+            <button class="btn btn-outline-secondary btn-sm" id="searchBtn">
+                <i class="bi bi-search"></i>
+            </button>
+        </div>
+        <button class="btn btn-outline-info btn-sm" id="depGraphBtn" title="依赖关系图">
+            <i class="bi bi-diagram-3 me-1"></i>依赖图
+        </button>
+        {% if current_user.role == 'admin' %}
+        <button class="btn btn-outline-secondary btn-sm" id="sysConfigBtn" title="系统配置">
+            <i class="bi bi-gear me-1"></i>系统配置
+        </button>
+        {% endif %}
+        <button class="btn btn-primary btn-sm" id="addTaskBtn">
+            <i class="bi bi-plus-circle me-1"></i>添加任务
+        </button>
+    </div>
+</div>
+
+<!-- 任务表格 -->
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <table class="table table-hover table-striped mb-0 align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th width="50">#</th>
+                    <th>任务名称</th>
+                    <th width="100">标签</th>
+                    <th>脚本路径</th>
+                    <th width="120">Cron 表达式</th>
+                    <th width="180">执行规则</th>
+                    <th width="80">超时(s)</th>
+                    <th width="80">状态</th>
+                    <th width="130">下次运行</th>
+                    <th width="130">最后执行</th>
+                    <th width="80">启用</th>
+                    <th width="280" class="text-center">操作</th>
+                </tr>
+            </thead>
+            <tbody id="taskTableBody">
+                <tr><td colspan="10" class="text-center text-muted py-4">加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="card-footer d-flex justify-content-between align-items-center">
+        <span class="text-muted small" id="paginationInfo"></span>
+        <nav><ul class="pagination pagination-sm mb-0" id="pagination"></ul></nav>
+    </div>
+</div>
+
+<!-- 添加/编辑任务 Modal -->
+<div class="modal fade" id="taskModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="taskModalTitle">添加任务</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editTaskId">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">任务名称 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="taskName" placeholder="唯一任务名称">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">超时时间（秒）</label>
+                        <input type="number" class="form-control" id="timeout" value="3600" min="10" max="86400">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">脚本路径 <span class="text-danger">*</span></label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="scriptPath" placeholder="选择或输入 .py 脚本路径">
+                        <button class="btn btn-outline-primary" type="button" id="browseScriptBtn" title="浏览选择文件">
+                            <i class="bi bi-folder2-open"></i> 浏览
+                        </button>
+                    </div>
+                    <div class="form-text">仅支持 .py 文件，可手动输入或通过浏览器选择</div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Python 执行路径</label>
+                    <div class="d-flex gap-2 align-items-center mb-2">
+                        <select class="form-select" id="pythonPath" style="flex:1;">
+                            <option value="">系统默认 Python</option>
+                        </select>
+                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="toggleTaskPythonPanel()" title="管理Python路径">
+                            <i class="bi bi-gear"></i> 管理
+                        </button>
+                    </div>
+                    <div class="form-text">从文件编辑器中管理的 Python 路径中选择（数据共享）</div>
+                    <!-- 内嵌Python路径管理面板 -->
+                    <div id="taskPythonPathsPanel" class="border rounded p-2 mt-2 bg-light" style="display:none;">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <strong class="small"><i class="bi bi-gear me-1"></i>Python路径管理</strong>
+                            <button class="btn btn-sm btn-outline-primary" onclick="taskPyPathMgr.showAddForm()">
+                                <i class="bi bi-plus-circle me-1"></i>添加
+                            </button>
+                        </div>
+                        <div id="taskAddPathForm" class="mb-2 p-2 border rounded bg-white" style="display:none;">
+                            <div class="input-group input-group-sm mb-2">
+                                <input type="text" class="form-control" id="taskNewPythonPath" placeholder="Python路径，如 C:\Python39\python.exe">
+                                <button class="btn btn-outline-primary" type="button" onclick="browseTaskPythonPath()">
+                                    <i class="bi bi-folder2-open"></i>
+                                </button>
+                                <button class="btn btn-success" type="button" onclick="taskPyPathMgr.add()">
+                                    <i class="bi bi-check-lg"></i>
+                                </button>
+                                <button class="btn btn-outline-secondary" type="button" onclick="taskPyPathMgr.hideAddForm()">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input type="checkbox" class="form-check-input" id="taskSetDefault">
+                                <label class="form-check-label small" for="taskSetDefault">设为默认</label>
+                            </div>
+                        </div>
+                        <div class="table-responsive" style="max-height:180px;overflow-y:auto;">
+                            <table class="table table-sm table-hover align-middle mb-0">
+                                <tbody id="taskPythonPathsBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Cron 表达式配置 -->
+                <div class="mb-3">
+                    <label class="form-label">定时规则 <span class="text-danger">*</span></label>
+                    <ul class="nav nav-tabs nav-tabs-sm mb-2" id="cronTabs">
+                        <li class="nav-item">
+                            <a class="nav-link active" href="#" data-cron-tab="visual">
+                                <i class="bi bi-sliders me-1"></i>可视化配置
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" data-cron-tab="manual">
+                                <i class="bi bi-code-slash me-1"></i>手动输入 Cron
+                            </a>
+                        </li>
+                    </ul>
+                    <!-- 可视化配置面板 -->
+                    <div id="cronVisualPanel">
+                        <div class="row g-2">
+                            <div class="col">
+                                <label class="form-label small text-muted">分钟</label>
+                                <select class="form-select form-select-sm" id="cronMinuteType">
+                                    <option value="every">每分钟</option>
+                                    <option value="interval">每隔 N 分钟</option>
+                                    <option value="specific">指定分钟</option>
+                                </select>
+                                <input type="number" class="form-control form-control-sm mt-1 d-none"
+                                       id="cronMinuteVal" min="0" max="59" value="0" placeholder="0-59">
+                            </div>
+                            <div class="col">
+                                <label class="form-label small text-muted">小时</label>
+                                <select class="form-select form-select-sm" id="cronHourType">
+                                    <option value="every">每小时</option>
+                                    <option value="interval">每隔 N 小时</option>
+                                    <option value="specific">指定小时</option>
+                                </select>
+                                <input type="number" class="form-control form-control-sm mt-1 d-none"
+                                       id="cronHourVal" min="0" max="23" value="0" placeholder="0-23">
+                            </div>
+                            <div class="col">
+                                <label class="form-label small text-muted">日</label>
+                                <select class="form-select form-select-sm" id="cronDayType">
+                                    <option value="every">每天</option>
+                                    <option value="interval">每隔 N 天</option>
+                                    <option value="specific">指定日</option>
+                                </select>
+                                <input type="number" class="form-control form-control-sm mt-1 d-none"
+                                       id="cronDayVal" min="1" max="31" value="1" placeholder="1-31">
+                            </div>
+                            <div class="col">
+                                <label class="form-label small text-muted">月</label>
+                                <select class="form-select form-select-sm" id="cronMonthType">
+                                    <option value="every">每月</option>
+                                    <option value="interval">每隔 N 月</option>
+                                    <option value="specific">指定月</option>
+                                </select>
+                                <input type="number" class="form-control form-control-sm mt-1 d-none"
+                                       id="cronMonthVal" min="1" max="12" value="1" placeholder="1-12">
+                            </div>
+                            <div class="col">
+                                <label class="form-label small text-muted">星期</label>
+                                <select class="form-select form-select-sm" id="cronWeekType">
+                                    <option value="every">每天(不限)</option>
+                                    <option value="specific">指定星期</option>
+                                </select>
+                                <select class="form-select form-select-sm mt-1 d-none" id="cronWeekVal">
+                                    <option value="0">周一</option>
+                                    <option value="1">周二</option>
+                                    <option value="2">周三</option>
+                                    <option value="3">周四</option>
+                                    <option value="4">周五</option>
+                                    <option value="5">周六</option>
+                                    <option value="6">周日</option>
+                                </select>
+                            </div>
+                        </div>
+                        <!-- 常用预设 -->
+                        <div class="mt-2">
+                            <span class="small text-muted me-1">快速预设:</span>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-secondary cron-preset" data-cron="*/5 * * * *">每5分钟</button>
+                                <button class="btn btn-outline-secondary cron-preset" data-cron="*/30 * * * *">每30分钟</button>
+                                <button class="btn btn-outline-secondary cron-preset" data-cron="0 * * * *">每小时整点</button>
+                                <button class="btn btn-outline-secondary cron-preset" data-cron="0 2 * * *">每天凌晨2点</button>
+                                <button class="btn btn-outline-secondary cron-preset" data-cron="0 9 * * 0-4">工作日9点</button>
+                                <button class="btn btn-outline-secondary cron-preset" data-cron="0 0 1 * *">每月1号</button>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 手动输入面板 -->
+                    <div id="cronManualPanel" class="d-none">
+                        <input type="text" class="form-control" id="cronExpManual" placeholder="分 时 日 月 周">
+                    </div>
+                    <!-- Cron 预览 -->
+                    <div class="mt-2 p-2 bg-light rounded">
+                        <span class="small text-muted">Cron 表达式：</span>
+                        <code id="cronPreview" class="fs-6 text-primary">* * * * *</code>
+                        <span class="small text-muted ms-2" id="cronDesc"></span>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">执行参数（JSON 格式）</label>
+                    <textarea class="form-control" id="taskParams" rows="3" placeholder='{"username": "admin", "month": 2, "days": 5}'></textarea>
+                    <div class="form-text">JSON 对象格式，将转换为 <code>--key value</code> 传递给脚本</div>
+                </div>
+
+                <!-- 重试配置 -->
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">失败重试次数</label>
+                        <input type="number" class="form-control" id="maxRetries" value="0" min="0" max="10">
+                        <div class="form-text">0=不重试</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">重试间隔基数(秒)</label>
+                        <input type="number" class="form-control" id="retryDelay" value="1" min="1" max="300">
+                        <div class="form-text">实际间隔=基数×2^次数(指数退避)</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">失败短信通知</label>
+                        <select class="form-select" id="smsNotify">
+                            <option value="">跟随全局配置</option>
+                            <option value="true">开启</option>
+                            <option value="false">关闭</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- 标签选择 -->
+                <div class="mb-3">
+                    <label class="form-label">
+                        任务标签
+                        <button class="btn btn-sm btn-link p-0 ms-1" type="button" onclick="showTagManager()" title="管理标签">
+                            <i class="bi bi-gear"></i>
+                        </button>
+                    </label>
+                    <div id="tagCheckboxes" class="d-flex flex-wrap gap-2">
+                        <span class="text-muted small">暂无标签，点击右侧齿轮管理</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="saveTaskBtn">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 手动执行参数 Modal -->
+<div class="modal fade" id="execParamsModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-play-fill me-2"></i>手动执行任务</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="execTaskId">
+                <div class="mb-3">
+                    <label class="form-label">任务名称</label>
+                    <input type="text" class="form-control" id="execTaskName" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">默认参数（可修改）</label>
+                    <textarea class="form-control" id="execParams" rows="5" placeholder='{}'></textarea>
+                    <div class="form-text">
+                        <i class="bi bi-info-circle me-1"></i>
+                        修改后将使用新参数执行，不影响定时任务的默认参数
+                    </div>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="useDefaultParams" checked>
+                    <label class="form-check-label" for="useDefaultParams">
+                        使用默认参数
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-success" id="confirmExecBtn">
+                    <i class="bi bi-play-fill me-1"></i>执行
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- 文件浏览器 Modal -->
+<div class="modal fade" id="taskFileBrowserModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title"><i class="bi bi-file-earmark-binary me-2"></i>选择文件</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label"><strong>快捷访问：</strong></label>
+                    <div id="taskFileQuickPaths" class="d-flex flex-wrap gap-2"></div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label"><strong>当前路径：</strong></label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="taskCurrentFilePath" readonly>
+                        <button class="btn btn-outline-secondary" type="button" onclick="taskFileBrowser.goUp()">
+                            <i class="bi bi-arrow-up"></i> 上级
+                        </button>
+                    </div>
+                </div>
+                <div id="taskFileList" style="max-height:400px;overflow-y:auto;">
+                    <div class="text-center text-muted py-4">加载中...</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 标签管理 Modal -->
+<div class="modal fade" id="tagManagerModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-tags me-2"></i>标签管理</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="input-group mb-3">
+                    <input type="text" class="form-control" id="newTagName" placeholder="新标签名称">
+                    <input type="color" class="form-control form-control-color" id="newTagColor" value="#6c757d" style="width:50px;">
+                    <button class="btn btn-primary" type="button" onclick="addNewTag()">
+                        <i class="bi bi-plus-circle me-1"></i>添加
+                    </button>
+                </div>
+                <div id="tagListManager">
+                    <div class="text-center text-muted py-2">加载中...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 依赖关系图 Modal -->
+<div class="modal fade" id="depGraphModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-diagram-3 me-2"></i>任务依赖关系图</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="depGraphContainer" style="min-height:300px;">
+                    <div class="text-center text-muted py-4">加载中...</div>
+                </div>
+                <hr>
+                <h6><i class="bi bi-plus-circle me-1"></i>添加依赖关系</h6>
+                <div class="row g-2">
+                    <div class="col-md-4">
+                        <select class="form-select form-select-sm" id="depUpstream">
+                            <option value="">上游任务（先执行）</option>
+                        </select>
+                    </div>
+                    <div class="col-md-1 text-center">
+                        <i class="bi bi-arrow-right fs-5"></i>
+                    </div>
+                    <div class="col-md-4">
+                        <select class="form-select form-select-sm" id="depDownstream">
+                            <option value="">下游任务（后触发）</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-primary btn-sm w-100" onclick="addDependency()">
+                            <i class="bi bi-plus me-1"></i>添加依赖
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 系统配置 Modal -->
+<div class="modal fade" id="sysConfigModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-gear me-2"></i>系统配置 - 短信通知</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" id="smsEnabled">
+                    <label class="form-check-label fw-bold" for="smsEnabled">启用短信通知</label>
+                </div>
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <label class="form-label">短信接口 URL</label>
+                        <input type="text" class="form-control" id="smsApiUrl" placeholder="https://api.example.com/sms/send">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">请求方法</label>
+                        <select class="form-select" id="smsApiMethod">
+                            <option value="POST">POST</option>
+                            <option value="GET">GET</option>
+                        </select>
+                    </div>
+                    <div class="col-md-12">
+                        <label class="form-label">接收手机号（多个用逗号分隔）</label>
+                        <input type="text" class="form-control" id="smsPhones" placeholder="13800138000,13900139000">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">短信签名</label>
+                        <input type="text" class="form-control" id="smsSign" value="任务管理系统">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">内容截取长度</label>
+                        <input type="number" class="form-control" id="smsContentMaxLen" value="200" min="10" max="1000" placeholder="200">
+                        <div class="form-text">短信内容最大字符数，超出部分自动截断（最小10，默认200）</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">请求头 (JSON)</label>
+                        <input type="text" class="form-control" id="smsHeaders" placeholder='{}'>
+                    </div>
+                    <div class="col-md-12">
+                        <label class="form-label">请求体模板 (JSON，支持占位符)</label>
+                        <textarea class="form-control" id="smsBody" rows="3" placeholder='{"phones":"{phones}","content":"{content}","sign":"{sign}"}'></textarea>
+                        <div class="form-text">支持占位符：{phones} 手机号，{content} 内容，{sign} 签名，{task_name} 任务名，{error} 错误信息</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <a href="/sms-records" class="btn btn-outline-dark" target="_blank">
+                    <i class="bi bi-chat-dots me-1"></i>短信记录
+                </a>
+                <button type="button" class="btn btn-outline-info" onclick="testSms()">
+                    <i class="bi bi-send me-1"></i>发送测试
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                <button type="button" class="btn btn-primary" onclick="saveSmsConfig()">
+                    <i class="bi bi-check-lg me-1"></i>保存配置
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var currentPage = 1;
+var searchKeyword = '';
+var isModalOpen = false;
+var isSaving = false;
+var cronMode = 'visual';  // visual | manual
+var _originalCronExp = '';  // 保存编辑时的原始 cron 表达式
+var isAdmin = {{ 'true' if current_user.role == 'admin' else 'false' }};  // 是否管理员
+var allTags = [];  // 所有标签列表
+var selectedTagId = 0;  // 当前筛选标签
+
+// ====== 状态徽章 ======
+function statusBadge(status) {
+    var map = {
+        'running': '<span class="badge bg-success blink"><i class="bi bi-play-fill"></i> 运行中</span>',
+        'success': '<span class="badge bg-primary"><i class="bi bi-check-circle"></i> 成功</span>',
+        'failed':  '<span class="badge bg-danger"><i class="bi bi-x-circle"></i> 失败</span>',
+        'timeout': '<span class="badge bg-warning text-dark"><i class="bi bi-clock-history"></i> 超时</span>',
+        'stopped': '<span class="badge bg-secondary"><i class="bi bi-stop-fill"></i> 已停止</span>',
+    };
+    return map[status] || '<span class="badge bg-light text-muted">未执行</span>';
+}
+
+// ====== 安全关闭 Modal（清理遮罩层）======
+function closeModal() {
+    var el = document.getElementById('taskModal');
+    var instance = bootstrap.Modal.getInstance(el);
+    if (instance) {
+        instance.hide();
+    }
+    // 强制清理残留遮罩（防止页面变灰）
+    setTimeout(function() {
+        $('.modal-backdrop').remove();
+        $('body').removeClass('modal-open').css('overflow', '').css('padding-right', '');
+    }, 300);
+    isModalOpen = false;
+}
+
+// Modal 关闭事件：清理状态
+$('#taskModal').on('hidden.bs.modal', function() {
+    isModalOpen = false;
+    isSaving = false;
+    $('#saveTaskBtn').prop('disabled', false).text('保存');
+    // 收起Python路径管理面板
+    $('#taskPythonPathsPanel').hide();
+    $('#taskAddPathForm').hide();
+    // 清理残留遮罩
+    $('.modal-backdrop').remove();
+    $('body').removeClass('modal-open').css('overflow', '').css('padding-right', '');
+});
+
+// ====== 安全打开 Modal ======
+function openModal() {
+    // 先清理可能残留的
+    $('.modal-backdrop').remove();
+    $('body').removeClass('modal-open').css('overflow', '').css('padding-right', '');
+    isModalOpen = true;
+    var el = document.getElementById('taskModal');
+    var modal = bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el);
+    modal.show();
+}
+
+// ====== 加载任务列表 ======
+function loadTasks(page, silent) {
+    currentPage = page || 1;
+    // 弹窗打开时不自动刷新
+    if (isModalOpen) return;
+    $.getJSON('/api/tasks', {page: currentPage, per_page: 10, keyword: searchKeyword, tag_id: selectedTagId}, function(res) {
+        if (res.code !== 200) {
+            if (!silent) showToast(res.msg, 'danger');
+            return;
+        }
+        var d = res.data;
+        var html = '';
+        if (d.items.length === 0) {
+            html = '<tr><td colspan="10" class="text-center text-muted py-4">暂无任务数据</td></tr>';
+        }
+        $.each(d.items, function(i, t) {
+            var isRunning = t.last_status === 'running';
+            html += '<tr data-id="' + t.id + '">' +
+                '<td>' + ((currentPage - 1) * d.per_page + i + 1) + '</td>' +
+                '<td class="fw-bold">' + escapeHtml(t.task_name) + '</td>' +
+                '<td>' + renderTagBadges(t.tags) + '</td>' +
+                '<td>' +
+                    '<div class="path-cell" title="' + escapeHtml(t.script_path) + '">' +
+                        '<code class="small path-text">' + escapeHtml(t.script_path) + '</code>' +
+                        '<button class="btn btn-sm btn-link p-0 ms-1 copy-path-btn" data-path="' + escapeHtml(t.script_path) + '" title="复制路径">' +
+                            '<i class="bi bi-clipboard"></i>' +
+                        '</button>' +
+                    '</div>' +
+                '</td>' +
+                '<td><code>' + escapeHtml(t.cron_exp) + '</code></td>' +
+                '<td><small class="text-muted">' + escapeHtml(describeCronFull(t.cron_exp)) + '</small></td>' +
+                '<td>' + t.timeout + '</td>' +
+                '<td>' + statusBadge(t.last_status) + '</td>' +
+                '<td class="small">' + (t.next_run_time || '<span class="text-muted">-</span>') + '</td>' +
+                '<td class="small">' + (t.last_executed_at || '-') + '</td>' +
+                '<td><div class="form-check form-switch">' +
+                    '<input class="form-check-input toggle-active" type="checkbox" ' +
+                    (t.is_active ? 'checked' : '') + ' data-id="' + t.id + '">' +
+                '</div></td>' +
+                '<td class="text-center">' +
+                    '<button class="btn btn-sm btn-outline-primary me-1 edit-btn" data-id="' + t.id + '" title="编辑"><i class="bi bi-pencil"></i></button>' +
+                    (isAdmin ? '<a class="btn btn-sm btn-outline-secondary me-1" href="/file-editor/?file=' + encodeURIComponent(t.script_path) + '" title="在文件编辑器中打开" target="_blank"><i class="bi bi-code-square"></i></a>' : '') +
+                    '<button class="btn btn-sm btn-outline-success me-1 trigger-btn" data-id="' + t.id + '" title="手动执行"' + (isRunning ? ' disabled' : '') + '><i class="bi bi-play-fill"></i></button>' +
+                    '<button class="btn btn-sm btn-outline-warning me-1 stop-btn" data-id="' + t.id + '" title="停止"' + (!isRunning ? ' disabled' : '') + '><i class="bi bi-stop-fill"></i></button>' +
+                    '<a class="btn btn-sm btn-outline-info me-1" href="/task/' + t.id + '/logs" title="查看日志"><i class="bi bi-journal-text"></i></a>' +
+                    '<a class="btn btn-sm btn-outline-dark me-1" href="/task/' + t.id + '/stats" title="执行统计"><i class="bi bi-bar-chart"></i></a>' +
+                    '<button class="btn btn-sm btn-outline-danger del-btn" data-id="' + t.id + '" title="删除"><i class="bi bi-trash"></i></button>' +
+                '</td></tr>';
+        });
+        $('#taskTableBody').html(html);
+        $('#paginationInfo').text('共 ' + d.total + ' 条，第 ' + d.page + '/' + (d.pages||1) + ' 页');
+        renderPagination('pagination', d.page, d.pages, loadTasks);
+    });
+}
+
+// ============================================================
+// Cron 可视化构建器
+// ============================================================
+function buildCronFromVisual() {
+    var parts = [];
+    // 分钟
+    var mt = $('#cronMinuteType').val();
+    if (mt === 'every') parts.push('*');
+    else if (mt === 'interval') parts.push('*/' + ($('#cronMinuteVal').val() || '5'));
+    else parts.push($('#cronMinuteVal').val() || '0');
+    // 小时
+    var ht = $('#cronHourType').val();
+    if (ht === 'every') parts.push('*');
+    else if (ht === 'interval') parts.push('*/' + ($('#cronHourVal').val() || '1'));
+    else parts.push($('#cronHourVal').val() || '0');
+    // 日
+    var dt = $('#cronDayType').val();
+    if (dt === 'every') parts.push('*');
+    else if (dt === 'interval') parts.push('*/' + ($('#cronDayVal').val() || '1'));
+    else parts.push($('#cronDayVal').val() || '1');
+    // 月
+    var mot = $('#cronMonthType').val();
+    if (mot === 'every') parts.push('*');
+    else if (mot === 'interval') parts.push('*/' + ($('#cronMonthVal').val() || '1'));
+    else parts.push($('#cronMonthVal').val() || '1');
+    // 星期
+    var wt = $('#cronWeekType').val();
+    if (wt === 'every') parts.push('*');
+    else parts.push($('#cronWeekVal').val() || '0');
+
+    return parts.join(' ');
+}
+
+function updateCronPreview() {
+    var cron;
+    if (cronMode === 'visual') {
+        cron = buildCronFromVisual();
+    } else {
+        cron = $('#cronExpManual').val().trim() || '* * * * *';
+    }
+    $('#cronPreview').text(cron);
+    $('#cronDesc').text(describeCron(cron));
+}
+
+// 简单 cron 描述生成（用于编辑弹窗预览）
+function describeCron(c) {
+    var p = c.split(/\s+/);
+    if (p.length !== 5) return '';
+    var min = p[0], hr = p[1], day = p[2], mon = p[3], wk = p[4];
+    
+    // 常见预设
+    if (c === '* * * * *') return '(每分钟执行)';
+    if (c === '*/5 * * * *') return '(每5分钟执行)';
+    if (c === '*/30 * * * *') return '(每30分钟执行)';
+    
+    // 每小时整点（0分 + 指定/每小时）
+    if (min === '0' && hr === '*' && day === '*' && mon === '*' && wk === '*') return '(每小时整点执行)';
+    
+    // 每天 X:XX 执行（指定分钟+指定小时）
+    if (min !== '*' && hr !== '*' && day === '*' && mon === '*' && wk === '*') {
+        return '(每天 ' + hr + ':' + (min.length < 2 ? '0' : '') + min + ' 执行)';
+    }
+    
+    // 每天 H 点（指定小时 + 每分钟）如 * 4 * * *
+    if (min === '*' && hr !== '*' && day === '*' && mon === '*' && wk === '*') {
+        return '(每天 ' + hr + ' 点每分钟执行)';
+    }
+    
+    // 每天某小时每隔N分钟 如 */5 4 * * *
+    if (min.indexOf('*/') === 0 && hr !== '*' && day === '*' && mon === '*' && wk === '*') {
+        return '(每天 ' + hr + ' 点每' + min.substring(2) + '分钟执行)';
+    }
+    
+    // 每月 D 号 X:XX 执行
+    if (min !== '*' && hr !== '*' && day !== '*' && mon === '*' && wk === '*') {
+        return '(每月' + day + '号 ' + hr + ':' + (min.length < 2 ? '0' : '') + min + ' 执行)';
+    }
+    
+    // 每周指定时间
+    if (wk !== '*' && day === '*') {
+        return '(每周指定时间执行)';
+    }
+    
+    // 每 N 分钟（仅分钟有值）
+    if (hr === '*' && day === '*' && mon === '*' && wk === '*') {
+        if (min.indexOf('*/') === 0) return '(每 ' + min.substring(2) + ' 分钟执行)';
+        if (min !== '*') return '(每小时 ' + min + ' 分执行)';
+    }
+    
+    // 每 N 小时
+    if (hr.indexOf('*/') === 0 && min === '*' && day === '*' && mon === '*' && wk === '*') {
+        return '(每' + hr.substring(2) + '小时执行)';
+    }
+    
+    return '';
+}
+
+// 完整 cron 中文翻译（用于任务列表展示）
+function describeCronFull(cron) {
+    if (!cron) return '-';
+    var p = cron.split(/\s+/);
+    if (p.length !== 5) return cron;
+    
+    var min = p[0], hr = p[1], day = p[2], mon = p[3], wk = p[4];
+    
+    // 常见预设模式
+    var presets = {
+        '* * * * *': '每分钟执行',
+        '*/5 * * * *': '每5分钟执行',
+        '*/10 * * * *': '每10分钟执行',
+        '*/15 * * * *': '每15分钟执行',
+        '*/30 * * * *': '每30分钟执行',
+        '0 * * * *': '每小时整点执行',
+        '0 0 * * *': '每天午夜执行',
+        '0 2 * * *': '每天凌晨2点执行',
+        '0 9 * * *': '每天上午9点执行',
+        '0 0 1 * *': '每月1号午夜执行'
+    };
+    
+    if (presets[cron]) return presets[cron];
+    
+    var weekDays = {'0': '周日', '1': '周一', '2': '周二', '3': '周三',
+                    '4': '周四', '5': '周五', '6': '周六'};
+    
+    // 解析单个字段为中文描述
+    function descMin(v) {
+        if (v === '*') return '';
+        if (v.indexOf('*/') === 0) return '每' + v.substring(2) + '分钟';
+        if (v.indexOf(',') !== -1) return '第' + v + '分钟';
+        if (v.indexOf('-') !== -1) return v + '分钟';
+        return v + '分';
+    }
+    
+    function descHour(v) {
+        if (v === '*') return '';
+        if (v.indexOf('*/') === 0) return '每' + v.substring(2) + '小时';
+        if (v.indexOf(',') !== -1) return v + '点';
+        if (v.indexOf('-') !== -1) return v + '点';
+        return v + '点';
+    }
+    
+    function descDay(v) {
+        if (v === '*') return '';
+        if (v.indexOf('*/') === 0) return '每' + v.substring(2) + '天';
+        return v + '日';
+    }
+    
+    function descMonth(v) {
+        if (v === '*') return '';
+        if (v.indexOf('*/') === 0) return '每' + v.substring(2) + '个月';
+        return v + '月';
+    }
+    
+    function descWeek(v) {
+        if (v === '*') return '';
+        if (v.indexOf(',') !== -1) {
+            return '每周' + v.split(',').map(function(d) { return weekDays[d] || d; }).join('、');
+        }
+        if (v.indexOf('-') !== -1) {
+            var parts = v.split('-');
+            return '每周' + (weekDays[parts[0]] || parts[0]) + '到' + (weekDays[parts[1]] || parts[1]);
+        }
+        return '每周' + (weekDays[v] || v);
+    }
+    
+    // 构建时间描述（分钟+小时）
+    var timeParts = [];
+    var hasSpecificMin = (min !== '*' && min.indexOf('*/') !== 0);
+    var hasSpecificHr = (hr !== '*' && hr.indexOf('*/') !== 0);
+    var hasIntervalMin = (min.indexOf('*/') === 0);
+    var hasIntervalHr = (hr.indexOf('*/') === 0);
+    
+    if (hasSpecificHr && hasSpecificMin) {
+        timeParts.push(hr + ':' + (min.length < 2 ? '0' : '') + min);
+    } else if (hasSpecificHr && min === '*') {
+        timeParts.push(hr + '点每分钟');
+    } else if (hasSpecificHr && hasIntervalMin) {
+        timeParts.push(hr + '点' + descMin(min));
+    } else if (hasIntervalHr && hasSpecificMin) {
+        timeParts.push(descHour(hr) + min + '分');
+    } else if (hasIntervalHr && min === '*') {
+        timeParts.push(descHour(hr));
+    } else if (hasIntervalHr && hasIntervalMin) {
+        timeParts.push(descHour(hr) + descMin(min));
+    } else if (hasSpecificMin && hr === '*') {
+        timeParts.push('每小时' + min + '分');
+    } else if (hasIntervalMin && hr === '*') {
+        timeParts.push(descMin(min));
+    }
+    
+    // 构建日期/周期描述
+    var periodParts = [];
+    
+    if (wk !== '*') {
+        periodParts.push(descWeek(wk));
+    } else if (day !== '*' && mon !== '*') {
+        periodParts.push('每年' + mon + '月' + day + '日');
+    } else if (mon !== '*') {
+        periodParts.push('每年' + mon + '月' + (day !== '*' ? day + '日' : ''));
+    } else if (day !== '*') {
+        periodParts.push('每月' + day + '日');
+    }
+    
+    // 组装最终描述
+    var result = '';
+    if (periodParts.length > 0) {
+        if (timeParts.length > 0) {
+            result = periodParts.join('，') + ' ' + timeParts.join('');
+        } else {
+            result = periodParts.join('，');
+        }
+    } else {
+        if (timeParts.length > 0) {
+            if (hasSpecificHr) {
+                result = '每天 ' + timeParts.join('');
+            } else {
+                result = timeParts.join('');
+            }
+        }
+    }
+    
+    return result || cron;
+}
+
+// Cron 类型切换：显示/隐藏值输入
+$(document).on('change', '#cronMinuteType, #cronHourType, #cronDayType, #cronMonthType, #cronWeekType', function() {
+    var $sel = $(this);
+    var $input = $sel.next('input, select');
+    if ($sel.val() === 'every') { $input.addClass('d-none'); }
+    else { $input.removeClass('d-none'); }
+    updateCronPreview();
+});
+$(document).on('input change', '#cronMinuteVal, #cronHourVal, #cronDayVal, #cronMonthVal, #cronWeekVal', function() {
+    updateCronPreview();
+});
+
+// Tab 切换
+$(document).on('click', '[data-cron-tab]', function(e) {
+    e.preventDefault();
+    $('[data-cron-tab]').removeClass('active');
+    $(this).addClass('active');
+    cronMode = $(this).data('cron-tab');
+    if (cronMode === 'visual') {
+        $('#cronVisualPanel').removeClass('d-none');
+        $('#cronManualPanel').addClass('d-none');
+    } else {
+        $('#cronVisualPanel').addClass('d-none');
+        $('#cronManualPanel').removeClass('d-none');
+        // 切换到手动模式：优先使用原始 cron 表达式，避免可视化面板无法表达复杂格式时生成错误值
+        $('#cronExpManual').val(_originalCronExp || buildCronFromVisual());
+    }
+    updateCronPreview();
+});
+$('#cronExpManual').on('input', function() { updateCronPreview(); });
+
+// 预设按钮
+$(document).on('click', '.cron-preset', function() {
+    var cron = $(this).data('cron');
+    // 切到手动模式并填入
+    $('[data-cron-tab="manual"]').click();
+    $('#cronExpManual').val(cron);
+    updateCronPreview();
+});
+
+// 解析 cron 表达式到可视化面板
+// 如果表达式包含逗号分隔多值或横杠范围等复杂格式，返回 false（由调用方切换到手动模式）
+function parseCronToVisual(cron) {
+    var p = cron.split(/\s+/);
+    if (p.length !== 5) return false;
+
+    // 检查每个字段是否可被可视化面板表达
+    // 可视化仅支持：* 、*/N（间隔）、单个数字（指定）
+    // 不支持：逗号分隔多值（如 2,3,4）、横杠范围（如 2-6）、步长范围（如 1-10/2）
+    function isSimpleField(val) {
+        if (val === '*') return true;
+        if (val.indexOf('*/') === 0 && /^\*\/\d+$/.test(val)) return true;
+        if (/^\d+$/.test(val)) return true;
+        return false;  // 含逗号、横杠等复杂格式
+    }
+
+    // 前4个字段（分、时、日、月）都必须是简单格式
+    for (var i = 0; i < 4; i++) {
+        if (!isSimpleField(p[i])) return false;
+    }
+    // 星期字段只支持 * 或单个数字
+    if (p[4] !== '*' && !/^\d+$/.test(p[4])) return false;
+
+    function setType(prefix, val) {
+        var $type = $('#cron' + prefix + 'Type');
+        var $val = $('#cron' + prefix + 'Val');
+        if (val === '*') { $type.val('every'); $val.addClass('d-none'); }
+        else if (val.indexOf('*/') === 0) {
+            $type.val('interval'); $val.removeClass('d-none').val(val.substring(2));
+        } else {
+            $type.val('specific'); $val.removeClass('d-none').val(val);
+        }
+    }
+    setType('Minute', p[0]);
+    setType('Hour', p[1]);
+    setType('Day', p[2]);
+    setType('Month', p[3]);
+    // 星期特殊处理
+    if (p[4] === '*') { $('#cronWeekType').val('every'); $('#cronWeekVal').addClass('d-none'); }
+    else { $('#cronWeekType').val('specific'); $('#cronWeekVal').removeClass('d-none').val(p[4]); }
+    return true;
+}
+
+// ====== 获取当前 cron 值 ======
+function getCronExp() {
+    if (cronMode === 'visual') return buildCronFromVisual();
+    return $('#cronExpManual').val().trim();
+}
+
+// ====== 保存任务 ======
+$('#saveTaskBtn').click(function() {
+    if (isSaving) return;
+    isSaving = true;
+    var $btn = $(this);
+    $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span>保存中...');
+
+    var id = $('#editTaskId').val();
+    var cronExp = getCronExp();
+    console.log('[Save] cronMode=' + cronMode + ', cronExp=' + cronExp);
+    if (!cronExp || cronExp.split(/\s+/).length !== 5) {
+        showToast('Cron 表达式格式错误，请检查', 'danger');
+        isSaving = false; $btn.prop('disabled', false).text('保存');
+        return;
+    }
+    var data = {
+        task_name: $('#taskName').val(),
+        script_path: $('#scriptPath').val(),
+        cron_exp: cronExp,
+        timeout: parseInt($('#timeout').val()) || 3600,
+        python_path: $('#pythonPath').val(),
+        max_retries: parseInt($('#maxRetries').val()) || 0,
+        retry_delay: parseInt($('#retryDelay').val()) || 1,
+        sms_notify: $('#smsNotify').val() === '' ? null : $('#smsNotify').val() === 'true'
+    };
+
+    // 收集选中的标签
+    var tagIds = [];
+    $('.tag-check:checked').each(function() { tagIds.push(parseInt($(this).val())); });
+    data.tag_ids = tagIds;
+
+    // 解析 JSON 参数
+    var paramsStr = $('#taskParams').val().trim();
+    if (paramsStr) {
+        try {
+            data.params = JSON.parse(paramsStr);
+        } catch(e) {
+            showToast('参数格式错误：请输入有效的 JSON 对象', 'danger');
+            isSaving = false; $btn.prop('disabled', false).text('保存');
+            return;
+        }
+    } else {
+        data.params = {};
+    }
+
+    // 检查脚本是否存在（添加和编辑任务都需要检查）
+    if (!id) {
+        // 添加任务，检查脚本是否存在
+        checkScriptAndSave(data, $btn, null);
+    } else {
+        // 编辑任务，需要获取原始路径进行比较
+        var originalPath = $('#editTaskId').data('original-script-path');
+        // 如果路径修改了，检查新路径是否存在
+        if (data.script_path !== originalPath) {
+            checkScriptAndSave(data, $btn, id);
+        } else {
+            // 路径没变，直接保存
+            submitTask(data, id, $btn);
+        }
+    }
+});
+
+// 检查脚本是否存在
+function checkScriptAndSave(data, $btn, taskId) {
+    $.ajax({
+        url: '/api/script/check',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ script_path: data.script_path }),
+        success: function(res) {
+            if (res.code === 200) {
+                if (res.data.exists) {
+                    // 脚本存在，直接保存
+                    submitTask(data, taskId, $btn);
+                } else {
+                    // 脚本不存在，弹框确认
+                    isSaving = false;
+                    $btn.prop('disabled', false).text('保存');
+                    showScriptCreateConfirm(data, $btn, taskId);
+                }
+            } else {
+                showToast(res.msg, 'danger');
+                isSaving = false; $btn.prop('disabled', false).text('保存');
+            }
+        },
+        error: function(xhr) {
+            showToast((xhr.responseJSON || {}).msg || '检查脚本失败', 'danger');
+            isSaving = false; $btn.prop('disabled', false).text('保存');
+        }
+    });
+}
+
+// 显示脚本创建确认框
+function showScriptCreateConfirm(data, $btn, taskId) {
+    var confirmMsg = '脚本文件不存在：\n' + data.script_path + '\n\n是否自动创建此脚本文件？';
+    
+    // 使用自定义确认框
+    if (confirm(confirmMsg)) {
+        // 用户选择创建脚本
+        createScriptAndSave(data, $btn, taskId);
+    }
+    // 用户选择取消，什么也不做
+}
+
+// 创建脚本并保存任务
+function createScriptAndSave(data, $btn, taskId) {
+    isSaving = true;
+    $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span>创建脚本中...');
+    
+    $.ajax({
+        url: '/api/script/create',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({
+            script_path: data.script_path,
+            task_name: data.task_name
+        }),
+        success: function(res) {
+            if (res.code === 200) {
+                showToast('脚本创建成功', 'success');
+                // 脚本创建成功后，保存任务
+                submitTask(data, taskId, $btn);
+            } else {
+                showToast(res.msg || '创建脚本失败', 'danger');
+                isSaving = false; $btn.prop('disabled', false).text('保存');
+            }
+        },
+        error: function(xhr) {
+            showToast((xhr.responseJSON || {}).msg || '创建脚本失败', 'danger');
+            isSaving = false; $btn.prop('disabled', false).text('保存');
+        }
+    });
+}
+
+// 提交任务（添加或更新）
+function submitTask(data, id, $btn) {
+    var url = id ? '/api/task/' + id : '/api/task';
+    var method = id ? 'PUT' : 'POST';
+
+    $.ajax({
+        url: url, method: method,
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function(res) {
+            if (res.code === 200) {
+                showToast(res.msg, 'success');
+                closeModal();
+                loadTasks(currentPage);
+            } else {
+                showToast(res.msg, 'danger');
+                isSaving = false; $btn.prop('disabled', false).text('保存');
+            }
+        },
+        error: function(xhr) {
+            showToast((xhr.responseJSON || {}).msg || '请求失败', 'danger');
+            isSaving = false; $btn.prop('disabled', false).text('保存');
+        }
+    });
+}
+
+// ====== 打开添加弹窗 ======
+$('#addTaskBtn').click(function() {
+    $('#editTaskId').val('');
+    $('#taskModalTitle').text('添加任务');
+    $('#taskName').val('');
+    $('#scriptPath').val('');
+    _originalCronExp = '';
+    $('#cronExpManual').val('');
+    $('#timeout').val(3600);
+    taskPyPathMgr.renderSelect();  // 重置Python路径下拉框
+    $('#taskParams').val('');
+    // 重置重试/短信/标签
+    $('#maxRetries').val(0);
+    $('#retryDelay').val(1);
+    $('#smsNotify').val('');
+    renderTagCheckboxes();
+    // 重置可视化面板
+    $('#cronMinuteType, #cronHourType, #cronDayType, #cronMonthType').val('every');
+    $('#cronWeekType').val('every');
+    $('#cronMinuteVal, #cronHourVal, #cronDayVal, #cronMonthVal, #cronWeekVal').addClass('d-none');
+    cronMode = 'visual';
+    $('[data-cron-tab]').removeClass('active');
+    $('[data-cron-tab="visual"]').addClass('active');
+    $('#cronVisualPanel').removeClass('d-none');
+    $('#cronManualPanel').addClass('d-none');
+    updateCronPreview();
+    openModal();
+});
+
+// ====== 打开编辑弹窗 ======
+$(document).on('click', '.edit-btn', function() {
+    var id = $(this).data('id');
+    $.getJSON('/api/task/' + id, function(res) {
+        if (res.code !== 200) { showToast(res.msg || '任务不存在', 'danger'); return; }
+        var task = res.data;
+        $('#editTaskId').val(task.id);
+        // 保存原始脚本路径，用于比较是否修改
+        $('#editTaskId').data('original-script-path', task.script_path);
+        $('#taskModalTitle').text('编辑任务');
+        $('#taskName').val(task.task_name);
+        $('#scriptPath').val(task.script_path);
+        $('#cronExpManual').val(task.cron_exp);
+        $('#timeout').val(task.timeout);
+        taskPyPathMgr.renderSelect(task.python_path || '');  // 设置Python路径选中
+        var paramsObj = task.params;
+        var hasParams = paramsObj && typeof paramsObj === 'object' && Object.keys(paramsObj).length > 0;
+        $('#taskParams').val(hasParams ? JSON.stringify(paramsObj, null, 2) : '');
+        // 设置重试/短信/标签
+        $('#maxRetries').val(task.max_retries || 0);
+        $('#retryDelay').val(task.retry_delay || 1);
+        $('#smsNotify').val(task.sms_notify === null ? '' : String(task.sms_notify));
+        var tagIds = (task.tags || []).map(function(t) { return t.id; });
+        renderTagCheckboxes(tagIds);
+        // 尝试解析 cron 到可视化面板
+        var cronStr = task.cron_exp || '* * * * *';
+        _originalCronExp = cronStr;  // 保存原始 cron，供 tab 切换时使用
+        $('#cronExpManual').val(cronStr);  // 始终同步手动输入框
+        var parsed = parseCronToVisual(cronStr);
+        if (parsed) {
+            cronMode = 'visual';
+            $('[data-cron-tab]').removeClass('active');
+            $('[data-cron-tab="visual"]').addClass('active');
+            $('#cronVisualPanel').removeClass('d-none');
+            $('#cronManualPanel').addClass('d-none');
+        } else {
+            cronMode = 'manual';
+            $('[data-cron-tab]').removeClass('active');
+            $('[data-cron-tab="manual"]').addClass('active');
+            $('#cronVisualPanel').addClass('d-none');
+            $('#cronManualPanel').removeClass('d-none');
+            $('#cronExpManual').val(cronStr);
+        }
+        updateCronPreview();
+        openModal();
+    });
+});
+
+// ====== 删除任务（防重复点击）======
+var isDeleting = {};
+$(document).on('click', '.del-btn', function() {
+    var id = $(this).data('id');
+    if (isDeleting[id]) return;
+    if (!confirm('确定删除此任务及其所有日志？此操作不可恢复。')) return;
+    isDeleting[id] = true;
+    $.ajax({
+        url: '/api/task/' + id, method: 'DELETE',
+        success: function(res) {
+            showToast(res.msg, res.code === 200 ? 'success' : 'danger');
+            loadTasks(currentPage);
+        },
+        error: function(xhr) { showToast((xhr.responseJSON || {}).msg || '删除失败', 'danger'); },
+        complete: function() { isDeleting[id] = false; }
+    });
+});
+
+// ====== 启用/停用 ======
+$(document).on('change', '.toggle-active', function() {
+    var id = $(this).data('id');
+    $.ajax({
+        url: '/api/task/' + id + '/toggle', method: 'POST',
+        success: function(res) { showToast(res.msg, res.code === 200 ? 'success' : 'danger'); },
+        error: function(xhr) { showToast((xhr.responseJSON || {}).msg || '操作失败', 'danger'); }
+    });
+});
+
+// ====== 手动触发（防重复点击）======
+var isTriggering = {};
+var currentExecTask = null;  // 当前正在配置执行的任务
+
+$(document).on('click', '.trigger-btn', function() {
+    var id = $(this).data('id');
+    if (isTriggering[id]) return;  // 防止重复请求
+    
+    // 获取任务信息
+    $.getJSON('/api/task/' + id, function(res) {
+        if (res.code !== 200) { showToast(res.msg || '任务不存在', 'danger'); return; }
+        var task = res.data;
+        
+        // 填充执行参数弹窗
+        $('#execTaskId').val(task.id);
+        $('#execTaskName').val(task.task_name);
+        
+        var paramsObj = task.params;
+        var hasParams = paramsObj && typeof paramsObj === 'object' && Object.keys(paramsObj).length > 0;
+        $('#execParams').val(hasParams ? JSON.stringify(paramsObj, null, 2) : '{}');
+        $('#useDefaultParams').prop('checked', true);
+        
+        // 显示弹窗
+        var el = document.getElementById('execParamsModal');
+        var modal = bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el);
+        modal.show();
+    });
+});
+
+// 使用默认参数复选框
+$('#useDefaultParams').change(function() {
+    if ($(this).prop('checked')) {
+        $('#execParams').prop('disabled', true);
+    } else {
+        $('#execParams').prop('disabled', false);
+    }
+});
+$('#useDefaultParams').trigger('change');  // 初始化状态
+
+// 确认执行按钮
+$('#confirmExecBtn').click(function() {
+    var id = $('#execTaskId').val();
+    if (!id || isTriggering[id]) return;
+    
+    var useDefault = $('#useDefaultParams').prop('checked');
+    var params = null;
+    
+    if (!useDefault) {
+        // 使用自定义参数
+        var paramsStr = $('#execParams').val().trim();
+        if (paramsStr) {
+            try {
+                params = JSON.parse(paramsStr);
+                if (typeof params !== 'object' || params === null || Array.isArray(params)) {
+                    showToast('参数必须是 JSON 对象', 'danger');
+                    return;
+                }
+            } catch(e) {
+                showToast('参数格式错误：请输入有效的 JSON 对象', 'danger');
+                return;
+            }
+        }
+    }
+    
+    // 关闭弹窗
+    var el = document.getElementById('execParamsModal');
+    var instance = bootstrap.Modal.getInstance(el);
+    if (instance) { instance.hide(); }
+    
+    // 发起执行请求
+    isTriggering[id] = true;
+    var $btn = $(this);
+    $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm me-1"></span>执行中...');
+    
+    var requestData = {};
+    if (params !== null) {
+        requestData.params = params;
+    }
+    
+    $.ajax({
+        url: '/api/task/' + id + '/trigger',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(requestData),
+        success: function(res) {
+            showToast(res.msg, res.code === 200 ? 'success' : 'warning');
+            setTimeout(function() { loadTasks(currentPage); }, 1500);
+        },
+        error: function(xhr) {
+            showToast((xhr.responseJSON || {}).msg || '触发失败', 'danger');
+        },
+        complete: function() {
+            isTriggering[id] = false;
+            $btn.prop('disabled', false).html('<i class="bi bi-play-fill me-1"></i>执行');
+        }
+    });
+});
+
+// 清理执行弹窗的遮罩层
+$('#execParamsModal').on('hidden.bs.modal', function() {
+    $('.modal-backdrop').remove();
+    $('body').removeClass('modal-open').css('overflow', '').css('padding-right', '');
+});
+
+// ====== 强制停止（防重复点击）======
+var isStopping = {};
+$(document).on('click', '.stop-btn', function() {
+    var id = $(this).data('id');
+    if (isStopping[id]) return;
+    if (!confirm('确定强制停止此任务？')) return;
+    isStopping[id] = true;
+    var $btn = $(this);
+    $btn.prop('disabled', true);
+    $.ajax({
+        url: '/api/task/' + id + '/stop', method: 'POST',
+        success: function(res) {
+            showToast(res.msg, res.code === 200 ? 'success' : 'danger');
+            loadTasks(currentPage);
+        },
+        error: function(xhr) { showToast((xhr.responseJSON || {}).msg || '停止失败', 'danger'); },
+        complete: function() { isStopping[id] = false; $btn.prop('disabled', false); }
+    });
+});
+
+// ====== 搜索 ======
+$('#searchBtn').click(function() { searchKeyword = $('#searchInput').val(); loadTasks(1); });
+$('#searchInput').keypress(function(e) { if (e.which === 13) { searchKeyword = $(this).val(); loadTasks(1); } });
+
+// ====== 复制路径 ======
+$(document).on('click', '.copy-path-btn', function(e) {
+    e.stopPropagation();
+    var path = $(this).data('path');
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(path).then(function() {
+            showToast('路径已复制到剪贴板', 'success');
+        });
+    } else {
+        // 备用方案
+        var $temp = $('<input>');
+        $('body').append($temp);
+        $temp.val(path).select();
+        document.execCommand('copy');
+        $temp.remove();
+        showToast('路径已复制到剪贴板', 'success');
+    }
+});
+
+// ====== 自动刷新（弹窗关闭时才刷新）======
+setInterval(function() {
+    if (!isModalOpen) loadTasks(currentPage, true);
+}, 10000);
+
+// ============================================================
+// Python 路径管理器 & 文件浏览器（共享模块，见 app.js）
+// ============================================================
+var taskPyPathMgr = AppPythonPathManager({
+    selectId: 'pythonPath', tableBodyId: 'taskPythonPathsBody',
+    addFormId: 'taskAddPathForm', newPathInputId: 'taskNewPythonPath',
+    setDefaultCheckboxId: 'taskSetDefault', varName: 'taskPyPathMgr',
+    allowSystemDefault: true
+});
+var taskFileBrowser = AppFileBrowser({
+    modalId: 'taskFileBrowserModal', fileListId: 'taskFileList',
+    quickPathsId: 'taskFileQuickPaths', currentPathId: 'taskCurrentFilePath',
+    varName: 'taskFileBrowser'
+});
+
+function toggleTaskPythonPanel() {
+    var $panel = $('#taskPythonPathsPanel');
+    if ($panel.is(':visible')) {
+        $panel.slideUp(200);
+    } else {
+        taskPyPathMgr.init(function() { taskPyPathMgr.renderTable(); });
+        $panel.slideDown(200);
+    }
+}
+
+function browseTaskPythonPath() {
+    taskFileBrowser.setCallback(function(path) {
+        $('#taskNewPythonPath').val(path);
+    });
+    taskFileBrowser.show('', '.exe,.bat,.cmd,.sh');
+}
+
+// 浏览脚本文件按钮（只显示 .py 文件）
+$('#browseScriptBtn').click(function() {
+    taskFileBrowser.setCallback(function(path) {
+        $('#scriptPath').val(path);
+    });
+    taskFileBrowser.show('', '.py');
+});
+
+// 文件浏览器弹窗清理
+$('#taskFileBrowserModal').on('hidden.bs.modal', function() {
+    $('.modal-backdrop').remove();
+    $('body').removeClass('modal-open').css('overflow', '').css('padding-right', '');
+});
+
+// 初始化 Python 路径
+$(function() { taskPyPathMgr.init(); });
+
+// 回车键支持
+$(document).on('keypress', '#taskNewPythonPath', function(e) {
+    if (e.which === 13) { taskPyPathMgr.add(); }
+});
+
+// 初始加载
+$(function() {
+    loadTags();
+    loadTasks(1);
+});
+
+// ====== 标签相关 ======
+function renderTagBadges(tags) {
+    if (!tags || tags.length === 0) return '<span class="text-muted small">-</span>';
+    return tags.map(function(t) {
+        return '<span class="badge tag-badge" style="background-color:' + t.color + ';">' + escapeHtml(t.name) + '</span>';
+    }).join(' ');
+}
+
+function loadTags() {
+    $.getJSON('/api/tags', function(res) {
+        if (res.code === 200) {
+            allTags = res.data || [];
+            renderTagFilter();
+            renderTagCheckboxes();
+        }
+    });
+}
+
+function renderTagFilter() {
+    var $menu = $('#tagFilterMenu');
+    var html = '<li><a class="dropdown-item' + (selectedTagId === 0 ? ' active' : '') + '" href="#" data-tag-id="0">全部任务</a></li>';
+    html += '<li><hr class="dropdown-divider"></li>';
+    allTags.forEach(function(t) {
+        html += '<li><a class="dropdown-item' + (selectedTagId === t.id ? ' active' : '') + '" href="#" data-tag-id="' + t.id + '">' +
+            '<span class="badge me-1" style="background-color:' + t.color + ';">&nbsp;</span>' + escapeHtml(t.name) + '</a></li>';
+    });
+    $menu.html(html);
+    // 显示/隐藏批量操作
+    $('#batchOps').toggle(selectedTagId > 0);
+}
+
+$(document).on('click', '#tagFilterMenu a', function(e) {
+    e.preventDefault();
+    selectedTagId = parseInt($(this).data('tag-id')) || 0;
+    renderTagFilter();
+    var tag = allTags.find(function(t) { return t.id === selectedTagId; });
+    $('#tagFilterBtn').html('<i class="bi bi-tags me-1"></i>' + (tag ? tag.name : '标签筛选'));
+    loadTasks(1);
+});
+
+function renderTagCheckboxes(selectedIds) {
+    selectedIds = selectedIds || [];
+    if (allTags.length === 0) {
+        $('#tagCheckboxes').html('<span class="text-muted small">暂无标签，点击右侧齿轮管理</span>');
+        return;
+    }
+    var html = '';
+    allTags.forEach(function(t) {
+        var checked = selectedIds.indexOf(t.id) !== -1 ? ' checked' : '';
+        html += '<div class="form-check form-check-inline">' +
+            '<input class="form-check-input tag-check" type="checkbox" value="' + t.id + '"' + checked + '>' +
+            '<label class="form-check-label"><span class="badge" style="background-color:' + t.color + ';">' + escapeHtml(t.name) + '</span></label>' +
+            '</div>';
+    });
+    $('#tagCheckboxes').html(html);
+}
+
+function showTagManager() {
+    var el = document.getElementById('tagManagerModal');
+    var modal = bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el);
+    modal.show();
+    loadTagManagerList();
+}
+
+function loadTagManagerList() {
+    $.getJSON('/api/tags', function(res) {
+        if (res.code !== 200) return;
+        allTags = res.data || [];
+        var html = '';
+        if (allTags.length === 0) {
+            html = '<p class="text-muted text-center">暂无标签</p>';
+        } else {
+            allTags.forEach(function(t) {
+                html += '<div class="d-flex justify-content-between align-items-center mb-2 p-2 border rounded">' +
+                    '<span><span class="badge me-2" style="background-color:' + t.color + ';">&nbsp;</span>' + escapeHtml(t.name) + '</span>' +
+                    '<button class="btn btn-sm btn-outline-danger" onclick="deleteTag(' + t.id + ')"><i class="bi bi-trash"></i></button>' +
+                    '</div>';
+            });
+        }
+        $('#tagListManager').html(html);
+    });
+}
+
+function addNewTag() {
+    var name = $('#newTagName').val().trim();
+    var color = $('#newTagColor').val();
+    if (!name) { showToast('请输入标签名称', 'warning'); return; }
+    $.ajax({
+        url: '/api/tags', method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({name: name, color: color}),
+        success: function(res) {
+            if (res.code === 200) {
+                showToast('标签创建成功', 'success');
+                $('#newTagName').val('');
+                loadTagManagerList();
+                loadTags();
+            } else {
+                showToast(res.msg, 'danger');
+            }
+        }
+    });
+}
+
+function deleteTag(id) {
+    if (!confirm('确定删除此标签？')) return;
+    $.ajax({
+        url: '/api/tags/' + id, method: 'DELETE',
+        success: function(res) {
+            showToast(res.msg, res.code === 200 ? 'success' : 'danger');
+            loadTagManagerList();
+            loadTags();
+        }
+    });
+}
+
+// 批量操作
+$('#batchEnableBtn').click(function(e) {
+    e.preventDefault();
+    if (!selectedTagId) return;
+    $.ajax({
+        url: '/api/tasks/batch-toggle', method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({tag_id: selectedTagId, action: 'enable'}),
+        success: function(res) { showToast(res.msg, res.code === 200 ? 'success' : 'danger'); loadTasks(currentPage); }
+    });
+});
+$('#batchDisableBtn').click(function(e) {
+    e.preventDefault();
+    if (!selectedTagId) return;
+    $.ajax({
+        url: '/api/tasks/batch-toggle', method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({tag_id: selectedTagId, action: 'disable'}),
+        success: function(res) { showToast(res.msg, res.code === 200 ? 'success' : 'danger'); loadTasks(currentPage); }
+    });
+});
+
+// ====== 依赖关系图 ======
+$('#depGraphBtn').click(function() {
+    var el = document.getElementById('depGraphModal');
+    var modal = bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el);
+    modal.show();
+    loadDepGraph();
+});
+
+function loadDepGraph() {
+    $.getJSON('/api/task/dependencies/graph', function(res) {
+        if (res.code !== 200) return;
+        var nodes = res.data.nodes || [];
+        var edges = res.data.edges || [];
+
+        // 填充下拉框
+        var options = '<option value="">选择任务...</option>';
+        nodes.forEach(function(n) {
+            options += '<option value="' + n.id + '">' + escapeHtml(n.name) + '</option>';
+        });
+        $('#depUpstream').html(options);
+        $('#depDownstream').html(options);
+
+        // 渲染图
+        var html = '';
+        if (edges.length === 0) {
+            html = '<p class="text-center text-muted py-3">暂无依赖关系</p>';
+        } else {
+            edges.forEach(function(e) {
+                var fromNode = nodes.find(function(n) { return n.id === e.from; });
+                var toNode = nodes.find(function(n) { return n.id === e.to; });
+                html += '<div class="d-flex align-items-center mb-2 p-2 border rounded bg-light">' +
+                    '<span class="dep-node ' + (fromNode && fromNode.is_active ? 'active' : 'inactive') + '">' + escapeHtml(fromNode ? fromNode.name : '?') + '</span>' +
+                    '<span class="dep-arrow mx-2">→</span>' +
+                    '<span class="dep-node ' + (toNode && toNode.is_active ? 'active' : 'inactive') + '">' + escapeHtml(toNode ? toNode.name : '?') + '</span>' +
+                    '<button class="btn btn-sm btn-outline-danger ms-auto" onclick="deleteDep(' + e.id + ')" title="删除"><i class="bi bi-trash"></i></button>' +
+                    '</div>';
+            });
+        }
+        $('#depGraphContainer').html(html);
+    });
+}
+
+function addDependency() {
+    var up = $('#depUpstream').val();
+    var down = $('#depDownstream').val();
+    if (!up || !down) { showToast('请选择上游和下游任务', 'warning'); return; }
+    $.ajax({
+        url: '/api/task/dependencies', method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({upstream_task_id: parseInt(up), downstream_task_id: parseInt(down)}),
+        success: function(res) {
+            showToast(res.msg, res.code === 200 ? 'success' : 'danger');
+            if (res.code === 200) loadDepGraph();
+        }
+    });
+}
+
+function deleteDep(id) {
+    if (!confirm('确定删除此依赖关系？')) return;
+    $.ajax({
+        url: '/api/task/dependencies/' + id, method: 'DELETE',
+        success: function(res) {
+            showToast(res.msg, res.code === 200 ? 'success' : 'danger');
+            loadDepGraph();
+        }
+    });
+}
+
+// ====== 系统配置 ======
+$('#sysConfigBtn').click(function() {
+    var el = document.getElementById('sysConfigModal');
+    var modal = bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el);
+    modal.show();
+    loadSmsConfig();
+});
+
+function loadSmsConfig() {
+    $.getJSON('/api/system-config', function(res) {
+        if (res.code !== 200) return;
+        var c = res.data;
+        $('#smsEnabled').prop('checked', c.sms_enabled === 'true');
+        $('#smsApiUrl').val(c.sms_api_url || '');
+        $('#smsApiMethod').val(c.sms_api_method || 'POST');
+        $('#smsPhones').val(c.sms_api_phones || '');
+        $('#smsSign').val(c.sms_sign || '任务管理系统');
+        $('#smsContentMaxLen').val(c.sms_content_max_len || '200');
+        $('#smsHeaders').val(c.sms_api_headers || '{}');
+        $('#smsBody').val(c.sms_api_body || '');
+    });
+}
+
+function saveSmsConfig() {
+    var data = {
+        sms_enabled: $('#smsEnabled').is(':checked') ? 'true' : 'false',
+        sms_api_url: $('#smsApiUrl').val().trim(),
+        sms_api_method: $('#smsApiMethod').val(),
+        sms_api_phones: $('#smsPhones').val().trim(),
+        sms_sign: $('#smsSign').val().trim(),
+        sms_content_max_len: $('#smsContentMaxLen').val().trim() || '200',
+        sms_api_headers: $('#smsHeaders').val().trim() || '{}',
+        sms_api_body: $('#smsBody').val().trim() || '{}'
+    };
+    $.ajax({
+        url: '/api/system-config', method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(data),
+        success: function(res) { showToast(res.msg, res.code === 200 ? 'success' : 'danger'); }
+    });
+}
+
+function testSms() {
+    $.ajax({
+        url: '/api/system-config/test-sms', method: 'POST',
+        contentType: 'application/json', data: '{}',
+        success: function(res) {
+            showToast(res.msg, res.code === 200 ? 'success' : 'danger');
+        }
+    });
+}
+</script>
+{% endblock %}

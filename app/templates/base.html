@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}脚本任务管理系统{% endblock %}</title>
+    <!-- Bootstrap 5 - 本地资源 -->
+    <link href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.min.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    {% block extra_css %}{% endblock %}
+    <!-- jQuery + Bootstrap JS（本地资源） -->
+    <script src="{{ url_for('static', filename='vendor/jquery/jquery.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+</head>
+<body>
+    {% block navbar %}
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-bold" href="{{ url_for('task.task_list_page') }}">
+                <i class="bi bi-terminal-fill me-2"></i>脚本任务管理系统
+            </a>
+            {% if current_user.is_authenticated %}
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('task.task_list_page') }}">
+                            <i class="bi bi-list-task me-1"></i>任务管理
+                        </a>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-journal-text me-1"></i>执行日志
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="{{ url_for('log.log_home_page') }}">
+                                <i class="bi bi-list-check me-2"></i>任务日志
+                            </a></li>
+                            {% if current_user.role == 'admin' %}
+                            <li><a class="dropdown-item" href="{{ url_for('task.sms_records_page') }}">
+                                <i class="bi bi-chat-dots me-2"></i>短信记录
+                            </a></li>
+                            {% endif %}
+                        </ul>
+                    </li>
+                    {% if current_user.role == 'admin' %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('user.user_list_page') }}">
+                            <i class="bi bi-people-fill me-1"></i>用户管理
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('file_editor.file_editor_page') }}">
+                            <i class="bi bi-file-earmark-code me-1"></i>文件编辑器
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('backup.backup_page') }}">
+                            <i class="bi bi-archive me-1"></i>备份管理
+                        </a>
+                    </li>
+                    {% endif %}
+                </ul>
+                <div class="d-flex align-items-center">
+                    <span class="text-light me-3">
+                        <i class="bi bi-person-circle me-1"></i>{{ current_user.username }}
+                        {% if current_user.role == 'admin' %}
+                        <span class="badge bg-warning text-dark ms-1">管理员</span>
+                        {% endif %}
+                    </span>
+                    <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-light btn-sm">
+                        <i class="bi bi-box-arrow-right me-1"></i>退出
+                    </a>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </nav>
+    {% endblock %}
+
+    <!-- 全局消息提示 -->
+    <div id="global-toast" class="position-fixed top-0 start-50 translate-middle-x p-3" style="z-index: 9999;"></div>
+
+    <main class="container-fluid py-3">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- 公共工具 JS -->
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

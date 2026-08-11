@@ -1,0 +1,343 @@
+{% extends "base.html" %}
+{% block title %}备份管理 - 脚本任务管理系统{% endblock %}
+
+{% block extra_css %}
+<style>
+.backup-container {
+    max-width: 100%;
+}
+
+.section-card {
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+
+.section-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid #dee2e6;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.section-body {
+    padding: 0;
+}
+
+.target-row, .record-row {
+    padding: 8px 16px;
+    border-bottom: 1px solid #f1f3f5;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.target-row:hover, .record-row:hover {
+    background: #f8f9fa;
+}
+
+.badge-default {
+    background: #0d6efd;
+    color: #fff;
+}
+
+.filter-bar {
+    padding: 10px 16px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 40px 16px;
+    color: #6c757d;
+}
+
+.source-type-badge {
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.source-type-project { background: #d1e7dd; color: #0f5132; }
+.source-type-folder { background: #cfe2ff; color: #084298; }
+.source-type-file { background: #fff3cd; color: #664d03; }
+.source-type-pre_restore_snapshot { background: #f8d7da; color: #842029; }
+
+.file-exists-yes { color: #198754; }
+.file-exists-no { color: #dc3545; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="backup-container">
+    <!-- 页面标题 -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0">
+            <i class="bi bi-archive me-2"></i>备份管理
+        </h4>
+    </div>
+
+    <!-- 备份目标目录管理 -->
+    <div class="section-card">
+        <div class="section-header">
+            <span class="fw-bold">
+                <i class="bi bi-hdd me-1"></i>备份目标目录
+            </span>
+            <button class="btn btn-primary btn-sm" id="addTargetBtn">
+                <i class="bi bi-plus-lg me-1"></i>新增目录
+            </button>
+        </div>
+        <div class="section-body" id="targetsBody">
+            <div class="empty-state">
+                <i class="bi bi-hdd" style="font-size: 24px;"></i>
+                <p class="mt-2">暂无备份目录，请点击"新增目录"添加</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 备份排除规则 -->
+    <div class="section-card">
+        <div class="section-header">
+            <span class="fw-bold">
+                <i class="bi bi-skip-forward-circle me-1"></i>默认跳过的文件夹/文件
+            </span>
+        </div>
+        <div class="section-body">
+            <div style="padding: 12px 16px;">
+                <div class="d-flex flex-wrap gap-2 mb-2" id="excludePatternsList" style="min-height: 32px;">
+                    <span class="text-muted">加载中...</span>
+                </div>
+                <div class="input-group input-group-sm" style="max-width: 400px;">
+                    <input type="text" class="form-control" id="newExcludePattern" placeholder="输入文件夹名或文件名，如 .git 或 *.tmp">
+                    <button class="btn btn-outline-primary" type="button" id="addExcludePatternBtn">
+                        <i class="bi bi-plus-lg"></i> 添加
+                    </button>
+                </div>
+                <div class="form-text mt-1">
+                    备份时自动跳过这些文件夹和文件（按名称匹配）。
+                    <a href="javascript:resetExcludePatterns()" class="text-decoration-none">恢复默认</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 备份记录 -->
+    <div class="section-card">
+        <div class="section-header">
+            <span class="fw-bold">
+                <i class="bi bi-clock-history me-1"></i>备份记录
+            </span>
+        </div>
+        <div class="filter-bar">
+            <input type="text" class="form-control form-control-sm" id="recordKeyword"
+                   placeholder="搜索备份名称/源路径" style="width: 220px;">
+            <select class="form-select form-select-sm" id="recordSourceType" style="width: 140px;">
+                <option value="">全部类型</option>
+                <option value="project">项目</option>
+                <option value="folder">文件夹</option>
+                <option value="file">文件</option>
+                <option value="pre_restore_snapshot">恢复前快照</option>
+            </select>
+            <select class="form-select form-select-sm" id="recordTargetId" style="width: 180px;">
+                <option value="">全部目录</option>
+            </select>
+            <button class="btn btn-outline-primary btn-sm" id="searchRecordsBtn">
+                <i class="bi bi-search"></i> 搜索
+            </button>
+        </div>
+        <div class="section-body" id="recordsBody">
+            <div class="empty-state">
+                <i class="bi bi-archive" style="font-size: 24px;"></i>
+                <p class="mt-2">暂无备份记录</p>
+            </div>
+        </div>
+        <!-- 分页 -->
+        <div id="recordPagination" class="d-flex justify-content-between align-items-center p-2" style="border-top: 1px solid #dee2e6;">
+            <span class="text-muted small" id="recordPageInfo"></span>
+            <div id="recordPageControls"></div>
+        </div>
+    </div>
+</div>
+
+<!-- 新增/编辑备份目录 Modal -->
+<div class="modal fade" id="targetModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="targetModalTitle">
+                    <i class="bi bi-hdd me-2"></i>新增备份目录
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="targetId">
+                <div class="mb-3">
+                    <label class="form-label">备份路径 <span class="text-danger">*</span></label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="targetPath" placeholder="点击右侧按钮选择目录" readonly>
+                        <button class="btn btn-outline-primary" type="button" id="browseTargetPathBtn">
+                            <i class="bi bi-folder2-open"></i> 浏览
+                        </button>
+                    </div>
+                    <div class="form-text">选择备份存储目录，不存在会自动创建</div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">目录别名</label>
+                    <input type="text" class="form-control" id="targetName" placeholder="选择路径后自动生成" readonly>
+                    <div class="form-text">根据所选路径自动生成，格式: 文件夹名_盘符路径</div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">备注</label>
+                    <textarea class="form-control" id="targetDesc" rows="2" placeholder="可选"></textarea>
+                </div>
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input" id="targetDefault">
+                    <label class="form-check-label" for="targetDefault">设为默认备份目录</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="saveTargetBtn">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 创建备份 Modal -->
+<div class="modal fade" id="backupModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-archive me-2"></i>创建备份
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">备份内容</label>
+                    <input type="text" class="form-control" id="backupSourcePath" readonly>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-4">
+                        <label class="form-label">内容类型</label>
+                        <input type="text" class="form-control" id="backupSourceType" readonly>
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label">文件数量</label>
+                        <input type="text" class="form-control" id="backupFileCount" readonly>
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label">总大小</label>
+                        <input type="text" class="form-control" id="backupTotalSize" readonly>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">备份到</label>
+                    <select class="form-select" id="backupTargetSelect"></select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">备份名称</label>
+                    <input type="text" class="form-control" id="backupRecordName" placeholder="留空则自动生成">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="confirmBackupBtn">
+                    <i class="bi bi-archive me-1"></i>开始备份
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 备份详情 Modal -->
+<div class="modal fade" id="recordDetailModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-info-circle me-2"></i>备份详情
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="recordDetailBody">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 恢复确认 Modal -->
+<div class="modal fade" id="restoreConfirmModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-warning">
+                    <i class="bi bi-exclamation-triangle me-2"></i>恢复确认
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="restoreConfirmBody">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-warning" id="confirmRestoreBtn">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>确认恢复
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 文件夹浏览器 Modal（选择备份目录路径） -->
+<div class="modal fade" id="folderBrowserModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title">
+                    <i class="bi bi-folder2-open me-2"></i>选择备份目录
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label"><strong>快捷访问：</strong></label>
+                    <div id="bkQuickPaths" class="d-flex flex-wrap gap-2"></div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label"><strong>当前路径：</strong></label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="bkCurrentPath" readonly>
+                        <button class="btn btn-outline-secondary" type="button" id="bkGoUpBtn" onclick="bkGoUpFolder()">
+                            <i class="bi bi-arrow-up"></i> 上级
+                        </button>
+                    </div>
+                </div>
+                <div class="list-group" id="bkFolderList" style="max-height: 400px; overflow-y: auto;">
+                    <div class="text-center text-muted py-4">加载中...</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="bkConfirmFolderSelection()">
+                    <i class="bi bi-check-lg me-1"></i>选择此目录
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/backup.js') }}"></script>
+{% endblock %}

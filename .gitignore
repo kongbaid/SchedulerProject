@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# 虚拟环境
+venv/
+ENV/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 数据库（生产环境使用 MySQL，SQLite 仅用于开发）
+app.db
+*.sqlite
+*.sqlite3
+
+# 日志文件
+logs/*.log
+*.log
+
+# 锁文件
+.scheduler.lock
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 测试文件
+test_*.py
+test/
+
+# ===================== GitHub 发布排除项 =====================
+# 以下含真实凭据 / 内部信息，禁止提交；详见 config.example.py
+
+# 本地真实配置（含数据库地址与密码），请勿提交；GitHub 用 config.example.py 作模板
+config.py
+
+# Redis 工具：仅被已排除的 spider_login 使用，且含明文口令
+redis_util.py
+
+# 不对外开放的目录
+spider_login/
+node_modules/
+
+# 日志目录（含访问者 IP、内部绝对路径，禁止外泄）
+logs/
+
+# 项目内部记忆 / IDE / 本地环境变量
+.workbuddy/
+.trae/
+.env
+.env.*
+
+# task/ 目录只保留模板脚本供他人参考，内部业务脚本不提交
+task/*
+!task/script_template.py
