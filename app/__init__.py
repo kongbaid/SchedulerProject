@@ -10,7 +10,7 @@ from logging.handlers import RotatingFileHandler
 from typing import Optional
 
 from flask import Flask, redirect, url_for
-
+#配置切换：本地开发用真实配置，GitHub clone 用安全默认值
 try:
     from config import Config
 except ImportError:
